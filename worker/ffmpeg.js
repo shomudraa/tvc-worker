@@ -10,7 +10,7 @@ const run = promisify(execFile);
 // guarantees identical codec, GOP, pixel format and timebase at the joins.
 const VIDEO_ARGS = [
   "-c:v", "libx264",
-  "-preset", "medium",
+  "-preset", "veryfast",
   "-crf", "18",
   "-pix_fmt", "yuv420p",
   "-r", "25",
