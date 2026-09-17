@@ -5,13 +5,10 @@ import { cutSegment, concat, normalize, watermark, muxAudio, duration, probe, pl
 import { getProvider } from "./providers/index.js";
 
 /**
- * Run ONCE at startup (or via npm run prepare:segments).
- * Cuts the master into pieces and caches them. Face pieces are also joined
- * into a single file so the provider is called exactly once per user.
+ * Run ONCE at startup. Cuts the master into face/keep pieces and caches them.
  */
 export async function prepareSegments({ force = false } = {}) {
   await fs.mkdir(config.segmentsDir, { recursive: true });
-  // Reuse the cache when the master and timing haven't changed
   if (!force) {
     try {
       const m = await loadManifest();
@@ -22,7 +19,7 @@ export async function prepareSegments({ force = false } = {}) {
   const total = await duration(config.masterVideo);
   const pieces = planPieces(total, config.faceSegments);
 
-  const manifest = { total, pieces: [], facePieces: [], joinedFace: null };
+  const manifest = { total, pieces: [], facePieces: [] };
   for (let i = 0; i < pieces.length; i++) {
     const p = pieces[i];
     const file = path.join(config.segmentsDir, `${String(i).padStart(2, "0")}_${p.kind}.mp4`);
@@ -31,10 +28,6 @@ export async function prepareSegments({ force = false } = {}) {
     manifest.pieces.push(entry);
     if (p.kind === "face") manifest.facePieces.push(entry);
   }
-
-  const joined = path.join(config.segmentsDir, "face_joined.mp4");
-  await concat(manifest.facePieces.map((f) => f.file), joined);
-  manifest.joinedFace = joined;
 
   const info = await probe(config.masterVideo);
   const v = info.streams.find((s) => s.codec_type === "video");
@@ -65,9 +58,9 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
   await fs.mkdir(work, { recursive: true });
   await fs.mkdir(config.outputsDir, { recursive: true });
 
-  // 1) swap each face segment on its own.
-  // One call per segment: providers bill per rendered frame, so the cost is the
-  // same as sending them joined, and each segment gets its own face detection.
+  // 1) Swap each face segment on its own.
+  // Providers bill per rendered frame, so one call per segment costs the same
+  // as sending them joined, and each segment gets its own face detection.
   // A joined file has a hard cut in it, and the swap only tracked the face it
   // locked onto at the start, leaving later segments unswapped.
   const provider = getProvider(providerName);
@@ -83,30 +76,13 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
   }
   mark("swap");
 
-  // 2) normalize provider output to master's size/fps/codec
-  const swapped = path.join(work, "swapped.mp4");
-  await normalize(swappedRaw, swapped, manifest.width, manifest.height);
-  mark("normalize");
-
-  // 3) split the swapped file back into the individual face pieces
-  let offset = 0;
-  const swappedPieces = {};
-  for (const fp of manifest.facePieces) {
-    const len = fp.end - fp.start;
-    const out = path.join(work, `swapped_${fp.index}.mp4`);
-    await cutSegment(swapped, offset, offset + len, out);
-    swappedPieces[fp.index] = out;
-    offset += len;
-  }
-  mark("split");
-
-  // 4) stitch in original order: keep pieces from cache, face pieces from swap
+  // 2) Stitch in original order: keep pieces from cache, face pieces swapped
   const ordered = manifest.pieces.map((p) => (p.kind === "face" ? swappedPieces[p.index] : p.file));
   const stitched = path.join(work, "stitched.mp4");
   await concat(ordered, stitched);
   mark("stitch");
 
-  // 5) optional watermark
+  // 3) Optional watermark
   let videoForMux = stitched;
   if (config.watermark) {
     try {
@@ -119,12 +95,12 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
     }
   }
 
-  // 6) mux original master audio
+  // 4) Re-attach the original master audio
   const final = path.join(config.outputsDir, `${jobId}.mp4`);
   await muxAudio(videoForMux, config.masterVideo, final);
   mark("mux");
 
-  // 7) delete the user's face photo immediately (privacy)
+  // 5) Delete the user's photo immediately (privacy)
   try { await fs.unlink(facePath); } catch {}
   await fs.rm(work, { recursive: true, force: true });
   mark("cleanup");
