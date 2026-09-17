@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Put yourself in the film</title>
+<meta name="description" content="Upload one selfie and watch yourself in the new film.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<video id="bg" class="bg" src="/master.mp4" autoplay muted loop playsinline></video>
+<div class="scrim"></div>
+
+<header class="brand">
+  <span class="brand-name" id="brandName">Brand</span>
+</header>
+
+<main class="stage" id="stage" data-state="idle">
+
+  <!-- idle -->
+  <section class="panel" data-for="idle">
+    <h1 class="title">Put yourself<br>in the film.</h1>
+    <p class="lede">One selfie. Thirty seconds. You, in the new campaign.</p>
+    <label class="btn primary" for="fileInput">Choose a selfie
+      <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+    </label>
+    <p class="hint">Face the camera in good light. Works best without glasses or hats.</p>
+  </section>
+
+  <!-- preview -->
+  <section class="panel" data-for="preview">
+    <div class="preview">
+      <img id="previewImg" alt="Your selfie">
+      <div class="guide" aria-hidden="true"></div>
+    </div>
+    <label class="consent">
+      <input type="checkbox" id="consent">
+      <span>I am 18 or over, this is my own face, and I agree to it being processed by an AI service to make my video. My photo is deleted right after, and the video after 24 hours. <a href="/privacy.html" target="_blank" rel="noopener">How this works</a></span>
+    </label>
+    <div class="row">
+      <button class="btn primary" id="startBtn" disabled>Make my film</button>
+      <button class="btn ghost" id="retakeBtn">Choose another</button>
+    </div>
+    <p class="error" id="previewError" role="alert"></p>
+  </section>
+
+  <!-- rendering -->
+  <section class="panel" data-for="rendering">
+    <p class="status" id="statusLine">Reading your selfie</p>
+    <div class="progress" aria-hidden="true"><div class="bar" id="bar"></div></div>
+    <p class="hint">Usually under a minute. Keep this page open.</p>
+  </section>
+
+  <!-- reveal -->
+  <section class="panel reveal" data-for="reveal">
+    <video id="result" class="result" playsinline controls></video>
+    <div class="row after" id="afterRow">
+      <a class="btn primary" id="downloadBtn" download="my-film.mp4">Download</a>
+      <button class="btn ghost" id="shareBtn">Share</button>
+      <button class="btn ghost" id="againBtn">Make another</button>
+    </div>
+  </section>
+
+  <!-- error -->
+  <section class="panel" data-for="error">
+    <h2 class="title small" id="errorTitle">That didn't work.</h2>
+    <p class="lede" id="errorText"></p>
+    <button class="btn primary" id="errorRetry">Try again</button>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <span id="footNote">Your photo is deleted after processing. Videos are removed after 24 hours.</span>
+</footer>
+
+<script src="/config.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
