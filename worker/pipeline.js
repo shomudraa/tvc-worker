@@ -65,10 +65,22 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
   await fs.mkdir(work, { recursive: true });
   await fs.mkdir(config.outputsDir, { recursive: true });
 
-  // 1) swap the joined face file (single provider call)
+  // 1) swap each face segment on its own.
+  // One call per segment: providers bill per rendered frame, so the cost is the
+  // same as sending them joined, and each segment gets its own face detection.
+  // A joined file has a hard cut in it, and the swap only tracked the face it
+  // locked onto at the start, leaving later segments unswapped.
   const provider = getProvider(providerName);
-  const swappedRaw = path.join(work, "swapped_raw.mp4");
-  await provider.swapVideo({ videoPath: manifest.joinedFace, facePath, outPath: swappedRaw, log });
+  const swappedPieces = {};
+  for (const fp of manifest.facePieces) {
+    const raw = path.join(work, `raw_${fp.index}.mp4`);
+    log(`swapping segment ${fp.start}-${fp.end}s`);
+    await provider.swapVideo({ videoPath: fp.file, facePath, outPath: raw, log });
+    const norm = path.join(work, `swapped_${fp.index}.mp4`);
+    await normalize(raw, norm, manifest.width, manifest.height);
+    await fs.rm(raw, { force: true });
+    swappedPieces[fp.index] = norm;
+  }
   mark("swap");
 
   // 2) normalize provider output to master's size/fps/codec
