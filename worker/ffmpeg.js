@@ -11,7 +11,8 @@ const run = promisify(execFile);
 const VIDEO_ARGS = [
   "-c:v", "libx264",
   "-preset", "veryfast",
-  "-crf", "18",
+  "-threads", "1",
+  "-crf", "20",
   "-pix_fmt", "yuv420p",
   "-r", "25",
   "-g", "25",
