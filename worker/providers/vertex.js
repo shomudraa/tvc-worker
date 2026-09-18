@@ -70,11 +70,24 @@ export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }
       const response = await fetch(url, {
         ...options, signal, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
-      const data = await response.json().catch(() => ({}));
+      const body = await response.text();
+      let data;
+      try { data = JSON.parse(body); } catch { data = null; }
       if (!response.ok) {
-        const detail = String(data.error?.message || response.statusText).replaceAll(token, "[redacted]").slice(0, 400);
-        throw new Error(`HTTP ${response.status}: ${detail}`);
+        const error = data?.error;
+        const reasons = (Array.isArray(error?.details) ? error.details : [])
+          .map(d => d.reason).filter(Boolean).join(", ");
+        const message = error?.message || data?.message ||
+          (typeof error === "string" ? error : "") ||
+          body.replace(/<[^>]*>/g, " ") || response.statusText;
+        const detail = String(message).replaceAll(token, "[redacted]")
+          .replace(/[A-Za-z0-9+/_=-]{100,}/g, "[redacted data]")
+          .replace(/\s+/g, " ").trim().slice(0, 1200);
+        const diagnostic = `HTTP ${response.status}: ${detail}${reasons ? ` [${reasons}]` : ""}`;
+        log(`vertex API error: ${diagnostic}`);
+        throw new Error(diagnostic);
       }
+      if (!data) throw new Error("Vertex returned a non-JSON success response");
       return data;
     }
     stage = "generation";
