@@ -69,7 +69,8 @@ async function redisQueue() {
     },
     async get(jobId) {
       const j = await queue.getJob(jobId);
-      return j ? { state: await j.getState() } : null;
+      if (!j) return null;
+      return { state: await j.getState(), failedReason: j.failedReason };
     },
     async getKV(k) { return redis.get(k); },
     async setKV(k, v, ttl) { return ttl ? redis.set(k, v, "EX", ttl) : redis.set(k, v); },

@@ -91,6 +91,9 @@ app.get("/jobs/:id", async (req, res) => {
   if (!job) return res.status(404).json({ error: "not_found" });
   const out = { state: job.state };
   if (job.state === "completed") out.videoUrl = `/videos/${req.params.id}.mp4`;
+  // Surface the real reason so failures can be diagnosed from the page itself
+  // rather than by hunting through server logs.
+  if (job.state === "failed" && job.failedReason) out.detail = String(job.failedReason).slice(0, 500);
   res.json(out);
 });
 
