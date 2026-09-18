@@ -40,6 +40,11 @@ fetch(api("/health"), { cache: "no-store" })
     $("footNote").textContent = "Rendering service is not connected yet. Set WORKER_URL in config.js.";
   });
 
+let file = null;
+let jobId = null;
+let pollTimer = null;
+let copyTimer = null;
+
 // Opened from an emailed link: go straight to the finished film
 const fromLink = new URLSearchParams(location.hash.slice(1)).get("job");
 if (fromLink) {
@@ -51,10 +56,6 @@ if (fromLink) {
 }
 $("footNote").textContent = BRAND.footNote;
 
-let file = null;
-let jobId = null;
-let pollTimer = null;
-let copyTimer = null;
 
 const COPY = [
   "Reading your selfie",
