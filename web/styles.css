@@ -146,7 +146,7 @@ body {
 }
 
 /* logo */
-.brand-logo { height: 28px; width: auto; display: block; }
+.brand-logo { height: 72px; width: auto; display: block; }
 .brand-name[hidden] { display: none; }
 
 /* email field */
