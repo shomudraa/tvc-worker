@@ -25,10 +25,13 @@ const emailField = $("emailField");
 $("brandName").textContent = BRAND.name;
 if (API) bg.src = api("/master.mp4");
 // Worker reachability check so the page never fails silently
-// Show the logo if one exists, otherwise keep the text
+// Show the logo if one exists, otherwise keep the text.
+// The src is set here, after the handlers are attached, so a missing file
+// never leaves a broken image icon on the page.
 const logo = $("brandLogo");
-logo.onload = () => { logo.hidden = false; };
+logo.onload = () => { logo.hidden = false; $("brandName").hidden = true; };
 logo.onerror = () => { logo.remove(); };
+logo.src = api("/logo.png");
 
 fetch(api("/health"), { cache: "no-store" })
   .then((r) => (r.ok ? r.json() : Promise.reject()))
