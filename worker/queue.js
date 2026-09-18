@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { config } from "./config.js";
 import { runSwapJob } from "./pipeline.js";
 import { sendReadyEmail } from "./notify.js";
@@ -33,8 +34,11 @@ async function materialiseFace(jobId, data) {
 
 /** Shared job body, so both backends behave identically. */
 async function processJob(jobId, data, log) {
+  const providerName = data.providerName || config.provider;
+  if (providerName !== config.provider) throw new Error(`Job provider ${providerName} does not match worker provider ${config.provider}`);
+  log(`worker=${os.hostname()} provider=${providerName} revision=${process.env.RENDER_GIT_COMMIT || "unknown"}`);
   const facePath = await materialiseFace(jobId, data);
-  const r = await runSwapJob({ jobId, facePath, log });
+  const r = await runSwapJob({ jobId, facePath, providerName, log });
   if (data.email) {
     await sendReadyEmail({ to: data.email, jobId, log }).catch((e) => log(`email error: ${e.message}`));
   }
@@ -48,6 +52,7 @@ function memoryQueue() {
     kind: "memory",
     kv: new Map(),
     async add(jobId, data) {
+      data = { ...data, providerName: config.provider };
       jobs.set(jobId, { state: "waiting", data, logs: [] });
       chain = chain.then(async () => {
         const j = jobs.get(jobId);
@@ -80,10 +85,13 @@ async function redisQueue() {
   const { Queue, Worker } = await import("bullmq");
   const IORedis = (await import("ioredis")).default;
   const redis = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
-  const queue = new Queue("swap", { connection: redis });
+  // Never share the legacy "swap" queue with old deployments or other providers.
+  const queueName = `tvc-v2-${config.provider}`;
+  const queue = new Queue(queueName, { connection: redis });
+  console.log(`queue=${queueName} worker=${os.hostname()} provider=${config.provider}`);
 
   new Worker(
-    "swap",
+    queueName,
     async (job) => {
       const jobId = job.data.jobId || job.id;
       const tag = String(jobId).slice(0, 8);
@@ -103,19 +111,12 @@ async function redisQueue() {
     { connection: redis, concurrency: Number(process.env.CONCURRENCY || 2) },
   );
 
-  // Clear anything left over from a container that died mid-job. Those jobs can
-  // never succeed and would otherwise fail noisily on every boot.
-  try {
-    const stale = await queue.getJobs(["waiting", "active", "delayed", "paused"]);
-    for (const j of stale) await j.remove().catch(() => {});
-    if (stale.length) console.log(`cleared ${stale.length} stale job(s) from a previous container`);
-  } catch (e) {
-    console.log(`stale job cleanup skipped: ${e.message}`);
-  }
+  // BullMQ manages stalled jobs. Startup must not delete another worker's jobs.
 
   return {
     kind: "redis",
     async add(jobId, data) {
+      data = { ...data, providerName: config.provider };
       // attempts defaults to 1: a retry re-runs the whole job, including a
       // second paid generation call, so a failure must not double the bill.
       await queue.add("swap", { jobId, ...data }, {
@@ -128,7 +129,7 @@ async function redisQueue() {
     async get(jobId) {
       const j = await queue.getJob(jobId);
       if (!j) return null;
-      return { state: await j.getState(), failedReason: j.failedReason };
+      return { state: await j.getState(), failedReason: j.failedReason, provider: j.data.providerName };
     },
     async getKV(k) { return redis.get(k); },
     async setKV(k, v, ttl) { return ttl ? redis.set(k, v, "EX", ttl) : redis.set(k, v); },
