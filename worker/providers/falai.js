@@ -1,3 +1,18 @@
+The file is 51 lines and 1.69 KB, but the full provider is about 95 lines and 2.8 KB. So the paste cut off partway through, and `export async function swapVideo` never made it in.
+
+Click the pencil, select everything, delete, and paste again. This time scroll to the bottom of the editor before committing and confirm the last three lines are:
+
+```javascript
+  await fs.rm(raw, { force: true });
+  return outPath;
+}
+```
+
+If you don't see those, the paste truncated again.
+
+Here's the file:
+
+```javascript
 import fs from "node:fs/promises";
 import path from "node:path";
 import { duration, ffmpeg } from "../ffmpeg.js";
@@ -48,4 +63,51 @@ export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }
   ]);
 
   let input;
-  if (shape ===
+  if (shape === "motion-control") {
+    input = {
+      prompt,
+      image_url: imageUrl,
+      video_url: videoUrl,
+      character_orientation: process.env.FAL_ORIENTATION || "video",
+    };
+  } else {
+    input = {
+      prompt,
+      image_urls: [imageUrl],
+      video_urls: [videoUrl],
+      duration: String(Math.max(4, Math.min(15, Math.round(secs)))),
+      resolution: process.env.FAL_RESOLUTION || "480p",
+      aspect_ratio: process.env.FAL_ASPECT || "16:9",
+      generate_audio,
+    };
+  }
+
+  log(`falai: ${model} (${shape})`);
+  const result = await fal.subscribe(model, {
+    input,
+    logs: true,
+    onQueueUpdate: (u) => {
+      if (u.status === "IN_PROGRESS" && u.logs?.length) {
+        log(`falai: ${u.logs[u.logs.length - 1].message}`);
+      } else if (u.status) {
+        log(`falai: ${u.status}`);
+      }
+    },
+  });
+
+  const data = result?.data ?? result;
+  const url = data?.video?.url;
+  if (!url) throw new Error(`fal: no video url in ${JSON.stringify(data).slice(0, 400)}`);
+
+  log("falai: downloading result");
+  const dl = await fetch(url);
+  if (!dl.ok) throw new Error(`fal download -> ${dl.status}`);
+
+  const raw = path.join(path.dirname(outPath), `fal_raw_${path.basename(outPath)}`);
+  await fs.writeFile(raw, Buffer.from(await dl.arrayBuffer()));
+
+  await ffmpeg(["-i", raw, "-t", String(secs), "-c", "copy", outPath]);
+  await fs.rm(raw, { force: true });
+  return outPath;
+}
+```
