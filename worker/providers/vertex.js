@@ -100,7 +100,7 @@ export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }
         input: [
           { type: "text", text: prompt },
           { type: "video", mime_type: "video/mp4", data: video.toString("base64") },
-          { type: "image", mime_type: "image/png", data: face.toString("base64") },
+          { type: "image", mime_type: "image/jpeg", data: face.toString("base64") },
         ],
         response_format: [{ type: "video" }],
         generation_config: { video_config: { task: "edit" } },
