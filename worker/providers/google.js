@@ -44,7 +44,7 @@ export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model, background: false, store: false, stream: false,
+        model, background: false, store: true, stream: false,
         input: [{ type: "user_input", content: [
           { type: "video", mime_type: "video/mp4", data: video.toString("base64") },
           { type: "image", mime_type: "image/png", data: face.toString("base64") },
