@@ -1,4 +1,9 @@
-const BRAND = { name: "Brand", footNote: "Your photo is deleted after processing. Videos are removed after 24 hours." };
+const BRAND = {
+  name: "Brand",
+  // Put logo.png in the web/ folder and it replaces the text automatically.
+  caption: "I Am inside Ryze TVC",
+  footNote: "Your photo is deleted after processing. Videos are removed after 24 hours.",
+};
 
 const API = (window.WORKER_URL || "").replace(/\/$/, "");
 const api = (p) => API + p;
@@ -14,13 +19,33 @@ const bar = $("bar");
 const result = $("result");
 const afterRow = $("afterRow");
 const bg = $("bg");
+const emailInput = $("email");
+const emailField = $("emailField");
 
 $("brandName").textContent = BRAND.name;
 if (API) bg.src = api("/master.mp4");
 // Worker reachability check so the page never fails silently
-fetch(api("/health"), { cache: "no-store" }).then((r) => { if (!r.ok) throw 0; }).catch(() => {
-  $("footNote").textContent = "Rendering service is not connected yet. Set WORKER_URL in config.js.";
-});
+// Show the logo if one exists, otherwise keep the text
+const logo = $("brandLogo");
+logo.onload = () => { logo.hidden = false; };
+logo.onerror = () => { logo.remove(); };
+
+fetch(api("/health"), { cache: "no-store" })
+  .then((r) => (r.ok ? r.json() : Promise.reject()))
+  .then((h) => { if (h.email) emailField.hidden = false; })
+  .catch(() => {
+    $("footNote").textContent = "Rendering service is not connected yet. Set WORKER_URL in config.js.";
+  });
+
+// Opened from an emailed link: go straight to the finished film
+const fromLink = new URLSearchParams(location.hash.slice(1)).get("job");
+if (fromLink) {
+  jobId = fromLink;
+  fetch(api(`/jobs/${fromLink}`), { cache: "no-store" })
+    .then((r) => r.json())
+    .then((d) => { if (d.state === "completed") reveal(d.videoUrl); else startRendering(); })
+    .catch(() => {});
+}
 $("footNote").textContent = BRAND.footNote;
 
 let file = null;
@@ -81,6 +106,8 @@ startBtn.addEventListener("click", async () => {
   const fd = new FormData();
   fd.append("face", file);
   fd.append("consent", "true");
+  const email = (emailInput?.value || "").trim();
+  if (email) fd.append("email", email);
   try {
     const res = await fetch(api("/jobs"), { method: "POST", body: fd });
     const data = await res.json().catch(() => ({}));
@@ -139,19 +166,42 @@ function reveal(url) {
   setTimeout(() => afterRow.classList.add("show"), 4000);
 }
 
+/**
+ * Share the video file itself through the phone's own share sheet, so
+ * Instagram, Facebook, WhatsApp and the rest appear as options. Sharing the
+ * file is the only route that reaches Instagram from a web page: it has no
+ * web share link of its own. The caption is attached as text, though some
+ * apps (Instagram especially) ignore prefilled text and require a paste.
+ */
 $("shareBtn").addEventListener("click", async () => {
+  const btn = $("shareBtn");
   const url = new URL(result.src, location.href).href;
+  const caption = BRAND.caption;
+
+  try { await navigator.clipboard?.writeText(caption); } catch {}
+
   if (navigator.share) {
     try {
       const blob = await (await fetch(url)).blob();
       const f = new File([blob], "my-film.mp4", { type: "video/mp4" });
-      if (navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f], title: "My film" });
-      return navigator.share({ url, title: "My film" });
-    } catch { /* user cancelled */ }
+      if (navigator.canShare && navigator.canShare({ files: [f] })) {
+        await navigator.share({ files: [f], text: caption, title: caption });
+        return;
+      }
+      await navigator.share({ url, text: caption, title: caption });
+      return;
+    } catch { /* user cancelled or share failed */ }
   }
-  await navigator.clipboard?.writeText(url);
-  $("shareBtn").textContent = "Link copied";
-  setTimeout(() => ($("shareBtn").textContent = "Share"), 1600);
+  await navigator.clipboard?.writeText(`${caption} ${url}`);
+  btn.textContent = "Copied";
+  setTimeout(() => (btn.textContent = "Share"), 1600);
+});
+
+$("captionBtn").addEventListener("click", async () => {
+  const btn = $("captionBtn");
+  await navigator.clipboard?.writeText(BRAND.caption);
+  btn.textContent = "Caption copied";
+  setTimeout(() => (btn.textContent = "Copy caption"), 1600);
 });
 
 function reset() {

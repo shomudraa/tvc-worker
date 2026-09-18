@@ -16,6 +16,7 @@
 <div class="scrim"></div>
 
 <header class="brand">
+  <img id="brandLogo" class="brand-logo" src="/logo.png" alt="" hidden>
   <span class="brand-name" id="brandName">Brand</span>
 </header>
 
@@ -41,6 +42,11 @@
       <input type="checkbox" id="consent">
       <span>I am 18 or over, this is my own face, and I agree to it being processed by an AI service to make my video. My photo is deleted right after, and the video after 24 hours. <a href="/privacy.html" target="_blank" rel="noopener">How this works</a></span>
     </label>
+    <div class="field" id="emailField" hidden>
+      <label class="field-label" for="email">Email me the film when it's ready</label>
+      <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com">
+      <span class="field-hint">Takes a few minutes. Leave this and we'll send you the link, so you don't have to wait.</span>
+    </div>
     <div class="row">
       <button class="btn primary" id="startBtn" disabled>Make my film</button>
       <button class="btn ghost" id="retakeBtn">Choose another</button>
@@ -61,6 +67,7 @@
     <div class="row after" id="afterRow">
       <a class="btn primary" id="downloadBtn" download="my-film.mp4">Download</a>
       <button class="btn ghost" id="shareBtn">Share</button>
+      <button class="btn ghost" id="captionBtn">Copy caption</button>
       <button class="btn ghost" id="againBtn">Make another</button>
     </div>
   </section>
