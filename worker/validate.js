@@ -34,12 +34,17 @@ export async function validateSelfie(buf) {
 
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "selfie-"));
   const inp = path.join(dir, `in.${type}`);
-  const out = path.join(dir, "out.png");
+  const out = path.join(dir, "out.jpg");
   try {
     await fs.writeFile(inp, buf);
+    // Re-encode small: the image travels inside the queued job, and an
+    // oversized payload is rejected by Redis. 1024px JPEG is ample for a face
+    // reference and lands around 100-300 kB instead of several megabytes.
     await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", inp,
-      "-vf", "scale='min(2048,iw)':-2", "-map_metadata", "-1", "-frames:v", "1", out]);
+      "-vf", "scale='min(1024,iw)':-2", "-map_metadata", "-1", "-frames:v", "1",
+      "-q:v", "4", out]);
     const png = await fs.readFile(out);
+    if (png.length > 1_500_000) return { ok: false, reason: "invalid_image" };
     // TODO: face count + moderation here
     return { ok: true, png };
   } catch {

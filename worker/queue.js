@@ -27,7 +27,7 @@ async function materialiseFace(jobId, data) {
   if (data.facePath) return data.facePath; // jobs queued by an older build
   if (!data.faceB64) throw new Error("job has no selfie attached");
   await fs.mkdir(config.tmpDir, { recursive: true });
-  const p = path.join(config.tmpDir, `${jobId}_face.png`);
+  const p = path.join(config.tmpDir, `${jobId}_face.jpg`);
   await fs.writeFile(p, Buffer.from(data.faceB64, "base64"));
   return p;
 }
