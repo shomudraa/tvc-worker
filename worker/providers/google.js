@@ -47,7 +47,7 @@ export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }
         model, background: false, store: true, stream: false,
         input: [{ type: "user_input", content: [
           { type: "video", mime_type: "video/mp4", data: video.toString("base64") },
-          { type: "image", mime_type: "image/png", data: face.toString("base64") },
+          { type: "image", mime_type: "image/jpeg", data: face.toString("base64") },
           { type: "text", text: prompt },
         ] }],
         response_format: { type: "video", delivery: "uri", resolution: "720p" },
