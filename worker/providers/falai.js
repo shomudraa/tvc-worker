@@ -36,6 +36,9 @@ import { duration } from "../ffmpeg.js";
 const DEFAULT_MODEL = "fal-ai/kling-video/v2.6/standard/motion-control";
 
 const DEFAULT_PROMPTS = {
+  "video-edit":
+    "Replace the face of the person in the video with @Element1, " +
+    "maintaining the same movements, camera angles, clothing, background and lighting.",
   "motion-control": "A person speaking to camera outdoors, natural daylight, photoreal",
   "reference-to-video":
     "The person from [Image1] replaces the person in [Video1]. " +
@@ -44,7 +47,9 @@ const DEFAULT_PROMPTS = {
 };
 
 function shapeFor(model) {
-  return model.includes("reference-to-video") ? "reference-to-video" : "motion-control";
+  if (model.includes("video-to-video")) return "video-edit";
+  if (model.includes("reference-to-video")) return "reference-to-video";
+  return "motion-control";
 }
 
 let configured = false;
@@ -79,7 +84,15 @@ export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }
   ]);
 
   let input;
-  if (shape === "motion-control") {
+  if (shape === "video-edit") {
+    // Kling Omni video-to-video/edit: keeps the original motion and scene and
+    // edits the subject. The selfie is passed as @Element1 in the prompt.
+    input = {
+      prompt,
+      video_url: videoUrl,
+      elements: [{ frontal_image_url: imageUrl }],
+    };
+  } else if (shape === "motion-control") {
     input = {
       prompt,
       image_url: imageUrl,
