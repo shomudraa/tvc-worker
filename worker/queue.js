@@ -1,6 +1,17 @@
 import { config } from "./config.js";
 import { runSwapJob } from "./pipeline.js";
 import { sendReadyEmail } from "./notify.js";
+import fs from "node:fs/promises";
+import path from "node:path";
+
+/** Write the job's selfie to this container's disk so the pipeline can read it. */
+async function materialiseFace(jobId, data) {
+  if (data.facePath) return data.facePath;           // legacy jobs
+  await fs.mkdir(config.tmpDir, { recursive: true });
+  const p = path.join(config.tmpDir, `${jobId}_face.png`);
+  await fs.writeFile(p, Buffer.from(data.faceB64, "base64"));
+  return p;
+}
 
 /**
  * Two queue backends with one interface:
@@ -54,6 +65,18 @@ async function redisQueue() {
     async (job) => (await runSwapJob({ jobId: job.data.jobId, facePath: job.data.facePath, log: (m) => job.log(m) })).timings,
     { connection: redis, concurrency: Number(process.env.CONCURRENCY || 2) },
   );
+  // Jobs live in Redis but the uploaded selfie lives on the container's disk,
+  // which Render wipes on every restart. Any job still queued or running when
+  // the container went down can never succeed, so clear those on boot instead
+  // of letting them fail with "no such file or directory".
+  try {
+    const stale = await queue.getJobs(["waiting", "active", "delayed", "paused"]);
+    for (const j of stale) await j.remove().catch(() => {});
+    if (stale.length) console.log(`cleared ${stale.length} stale job(s) from a previous container`);
+  } catch (e) {
+    console.log(`stale job cleanup skipped: ${e.message}`);
+  }
+
   return {
     kind: "redis",
     async add(jobId, data) {
