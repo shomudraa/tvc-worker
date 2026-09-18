@@ -132,11 +132,9 @@ export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }
   const dl = await fetch(url);
   if (!dl.ok) throw new Error(`fal download -> ${dl.status}`);
 
-  const raw = path.join(path.dirname(outPath), `fal_raw_${path.basename(outPath)}`);
-  await fs.writeFile(raw, Buffer.from(await dl.arrayBuffer()));
-
-  // Trim to the exact segment length so the stitch stays aligned
-  await ffmpeg(["-i", raw, "-t", String(secs), "-c", "copy", outPath]);
-  await fs.rm(raw, { force: true });
+  // Write the provider's clip as-is. The pipeline normalizes it to the master's
+  // size and frame rate and trims it to the exact segment length, so no ffmpeg
+  // work is needed here.
+  await fs.writeFile(outPath, Buffer.from(await dl.arrayBuffer()));
   return outPath;
 }
