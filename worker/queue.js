@@ -57,7 +57,15 @@ async function redisQueue() {
   return {
     kind: "redis",
     async add(jobId, data) {
-      await queue.add("swap", { jobId, ...data }, { jobId, removeOnComplete: 1000, removeOnFail: 1000, attempts: 2 });
+      // attempts: 1 by default. A retry re-runs the whole job, including a
+      // second paid generation call, so failures must not silently double the
+      // bill. Raise JOB_ATTEMPTS only if the provider is free.
+      await queue.add("swap", { jobId, ...data }, {
+        jobId,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+        attempts: Number(process.env.JOB_ATTEMPTS || 1),
+      });
     },
     async get(jobId) {
       const j = await queue.getJob(jobId);
