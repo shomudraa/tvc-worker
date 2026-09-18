@@ -70,15 +70,15 @@ app.post("/jobs", upload.single("face"), async (req, res) => {
     if (!check.ok) return res.status(400).json({ error: check.reason });
 
     const jobId = crypto.randomUUID();
-    await fs.mkdir(config.tmpDir, { recursive: true });
-    const facePath = path.join(config.tmpDir, `${jobId}_face.png`);
-    await fs.writeFile(facePath, check.png);
     const email = (req.body.email || "").trim();
     if (email && !validEmail(email)) return res.status(400).json({ error: "bad_email" });
 
     await queue.setKV(`swap:consent:${jobId}`, JSON.stringify({ ts: Date.now(), ipHash: hashIp(ip), policy: "v1" }), config.retentionHours * 3600);
     if (email) await queue.setKV(`swap:email:${jobId}`, email, config.retentionHours * 3600);
-    await queue.add(jobId, { facePath, email });
+    // The selfie travels inside the job, not on local disk: the container that
+    // accepts the upload is not always the one that processes it, and Render
+    // wipes disks on restart.
+    await queue.add(jobId, { faceB64: check.png.toString("base64"), email });
     res.json({ jobId });
   } catch (e) {
     console.error(e);

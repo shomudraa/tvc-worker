@@ -1,6 +1,17 @@
 import { config } from "./config.js";
 import { runSwapJob } from "./pipeline.js";
 import { sendReadyEmail } from "./notify.js";
+import fs from "node:fs/promises";
+import path from "node:path";
+
+/** Write the job's selfie to this container's disk so the pipeline can read it. */
+async function materialiseFace(jobId, data) {
+  if (data.facePath) return data.facePath;           // legacy jobs
+  await fs.mkdir(config.tmpDir, { recursive: true });
+  const p = path.join(config.tmpDir, `${jobId}_face.png`);
+  await fs.writeFile(p, Buffer.from(data.faceB64, "base64"));
+  return p;
+}
 
 /**
  * Two queue backends with one interface:
