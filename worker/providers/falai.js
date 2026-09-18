@@ -1,6 +1,37 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { duration, ffmpeg } from "../ffmpeg.js";
+import { duration } from "../ffmpeg.js";
+
+/**
+ * "falai" provider — one adapter, two families of fal endpoints.
+ *
+ * FAL_MODEL picks the endpoint. Two input shapes are supported:
+ *
+ *   motion-control  (default, $0.07/sec on v2.6 standard)
+ *     fal-ai/kling-video/v2.6/standard/motion-control
+ *     fal-ai/kling-video/v3/pro/motion-control
+ *     Takes ONE image_url + ONE video_url. Transfers the movement from the
+ *     video onto the character in the image.
+ *
+ *   reference-to-video  ($0.222/sec at 720p with video input)
+ *     bytedance/seedance-2.0/reference-to-video
+ *     bytedance/seedance-2.5/reference-to-video
+ *     Takes image_urls[] + video_urls[] and a prompt that names them as
+ *     [Image1] and [Video1].
+ *
+ * The shape is chosen from the model string, so you only change FAL_MODEL.
+ *
+ * Env:
+ *   FAL_KEY         required, from fal.ai
+ *   FAL_MODEL       endpoint id (default fal-ai/kling-video/v2.6/standard/motion-control)
+ *   FAL_PROMPT      master prompt
+ *   FAL_ORIENTATION motion-control only: "video" (default) or "image"
+ *   FAL_RESOLUTION  reference-to-video only: 480p (default) or 720p
+ *   FAL_ASPECT      reference-to-video only: 16:9 (default)
+ *   FAL_AUDIO       "true" to generate audio (default false; master audio is
+ *                   re-attached later, and on Seedance audio costs the same
+ *                   either way)
+ */
 
 const DEFAULT_MODEL = "fal-ai/kling-video/v2.6/standard/motion-control";
 
@@ -91,6 +122,7 @@ export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }
   const raw = path.join(path.dirname(outPath), `fal_raw_${path.basename(outPath)}`);
   await fs.writeFile(raw, Buffer.from(await dl.arrayBuffer()));
 
+  // Trim to the exact segment length so the stitch stays aligned
   await ffmpeg(["-i", raw, "-t", String(secs), "-c", "copy", outPath]);
   await fs.rm(raw, { force: true });
   return outPath;
