@@ -84,9 +84,11 @@ const ERRORS = {
 
 function setState(s) { stage.dataset.state = s; }
 
-function showError(code) {
+function showError(code, detail) {
   clearInterval(pollTimer); clearInterval(copyTimer);
   $("errorText").textContent = ERRORS[code] || ERRORS.server_error;
+  const d = $("errorDetail");
+  if (d) { d.textContent = detail || ""; d.hidden = !detail; }
   setState("error");
 }
 
@@ -148,7 +150,7 @@ async function poll() {
       bar.style.width = "100%";
       setTimeout(() => reveal(data.videoUrl), 500);
     } else if (data.state === "failed") {
-      showError("failed");
+      showError("failed", data.detail);
     }
   } catch {
     /* transient network error: keep polling */

@@ -146,7 +146,7 @@ body {
 }
 
 /* logo */
-.brand-logo { height: 72px; width: auto; display: block; }
+.brand-logo { height: 28px; width: auto; display: block; }
 .brand-name[hidden] { display: none; }
 
 /* email field */
@@ -161,3 +161,17 @@ body {
 .field input::placeholder { color: var(--ink-2); }
 .field input:focus { outline: none; border-color: var(--ink-2); }
 .field-hint { display: block; font-size: 13px; color: var(--ink-2); margin-top: 8px; max-width: 44ch; }
+
+/* technical failure reason, shown so problems can be diagnosed without logs */
+.error-detail {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px; line-height: 1.5;
+  color: #FF9B9B;
+  background: rgba(255,107,107,.08);
+  border: 1px solid rgba(255,107,107,.25);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 0 0 20px;
+  max-width: 52ch;
+  word-break: break-word;
+}
