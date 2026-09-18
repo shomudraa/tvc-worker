@@ -8,6 +8,7 @@ import { config } from "./config.js";
 import { prepareSegments } from "./pipeline.js";
 import { validateSelfie } from "./validate.js";
 import { createQueue } from "./queue.js";
+import { validEmail, emailEnabled } from "./notify.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(__dirname, "../web");
@@ -54,7 +55,7 @@ async function checkLimits(ip) {
   return null;
 }
 
-app.get("/health", (_req, res) => res.json({ ok: true, queue: queue.kind, provider: config.provider }));
+app.get("/health", (_req, res) => res.json({ ok: true, queue: queue.kind, provider: config.provider, email: emailEnabled() }));
 
 app.post("/jobs", upload.single("face"), async (req, res) => {
   try {
@@ -72,8 +73,12 @@ app.post("/jobs", upload.single("face"), async (req, res) => {
     await fs.mkdir(config.tmpDir, { recursive: true });
     const facePath = path.join(config.tmpDir, `${jobId}_face.png`);
     await fs.writeFile(facePath, check.png);
+    const email = (req.body.email || "").trim();
+    if (email && !validEmail(email)) return res.status(400).json({ error: "bad_email" });
+
     await queue.setKV(`swap:consent:${jobId}`, JSON.stringify({ ts: Date.now(), ipHash: hashIp(ip), policy: "v1" }), config.retentionHours * 3600);
-    await queue.add(jobId, { facePath });
+    if (email) await queue.setKV(`swap:email:${jobId}`, email, config.retentionHours * 3600);
+    await queue.add(jobId, { facePath, email });
     res.json({ jobId });
   } catch (e) {
     console.error(e);
@@ -101,6 +106,10 @@ app.post("/admin/pause", express.json(), async (req, res) => {
   await queue.setKV("swap:paused", req.body.paused ? "1" : "0");
   res.json({ paused: !!req.body.paused });
 });
+
+// Watch page for the link we email out. Serves the same single page app; the
+// hash tells the front end which finished video to show.
+app.get("/watch/:id", (req, res) => res.redirect(`/#job=${encodeURIComponent(req.params.id)}`));
 
 // Outputs (production: replace with signed R2/S3 URLs), master loop for the background, and the site
 app.use("/videos", express.static(config.outputsDir, { maxAge: "1h", index: false }));

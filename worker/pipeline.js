@@ -1,14 +1,17 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";
-import { cutSegment, concat, normalize, watermark, muxAudio, duration, probe, planPieces } from "./ffmpeg.js";
+import { cutSegment, concat, normalize, trimTo, watermark, muxAudio, duration, probe, planPieces } from "./ffmpeg.js";
 import { getProvider } from "./providers/index.js";
 
 /**
- * Run ONCE at startup. Cuts the master into face/keep pieces and caches them.
+ * Run ONCE at startup (or via npm run prepare:segments).
+ * Cuts the master into pieces and caches them. Face pieces are also joined
+ * into a single file so the provider is called exactly once per user.
  */
 export async function prepareSegments({ force = false } = {}) {
   await fs.mkdir(config.segmentsDir, { recursive: true });
+  // Reuse the cache when the master and timing haven't changed
   if (!force) {
     try {
       const m = await loadManifest();
@@ -19,7 +22,7 @@ export async function prepareSegments({ force = false } = {}) {
   const total = await duration(config.masterVideo);
   const pieces = planPieces(total, config.faceSegments);
 
-  const manifest = { total, pieces: [], facePieces: [] };
+  const manifest = { total, pieces: [], facePieces: [], joinedFace: null };
   for (let i = 0; i < pieces.length; i++) {
     const p = pieces[i];
     const file = path.join(config.segmentsDir, `${String(i).padStart(2, "0")}_${p.kind}.mp4`);
@@ -29,6 +32,10 @@ export async function prepareSegments({ force = false } = {}) {
     if (p.kind === "face") manifest.facePieces.push(entry);
   }
 
+  const joined = path.join(config.segmentsDir, "face_joined.mp4");
+  await concat(manifest.facePieces.map((f) => f.file), joined);
+  manifest.joinedFace = joined;
+
   const info = await probe(config.masterVideo);
   const v = info.streams.find((s) => s.codec_type === "video");
   manifest.width = v.width;
@@ -37,6 +44,8 @@ export async function prepareSegments({ force = false } = {}) {
   manifest.segmentsKey = JSON.stringify(config.faceSegments);
 
   await fs.writeFile(path.join(config.segmentsDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  console.log(`master ${total.toFixed(2)}s ${manifest.width}x${manifest.height}, pieces:`);
+  for (const p of manifest.pieces) console.log(`  ${p.index} ${p.kind} ${p.start}-${p.end}s`);
   return manifest;
 }
 
@@ -58,9 +67,9 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
   await fs.mkdir(work, { recursive: true });
   await fs.mkdir(config.outputsDir, { recursive: true });
 
-  // 1) Swap each face segment on its own.
-  // Providers bill per rendered frame, so one call per segment costs the same
-  // as sending them joined, and each segment gets its own face detection.
+  // 1) swap each face segment on its own.
+  // One call per segment: providers bill per rendered frame, so the cost is the
+  // same as sending them joined, and each segment gets its own face detection.
   // A joined file has a hard cut in it, and the swap only tracked the face it
   // locked onto at the start, leaving later segments unswapped.
   const provider = getProvider(providerName);
@@ -69,20 +78,31 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
     const raw = path.join(work, `raw_${fp.index}.mp4`);
     log(`swapping segment ${fp.start}-${fp.end}s`);
     await provider.swapVideo({ videoPath: fp.file, facePath, outPath: raw, log });
-    const norm = path.join(work, `swapped_${fp.index}.mp4`);
+    const want = fp.end - fp.start;
+    log(`  provider returned ${(await duration(raw)).toFixed(2)}s, need ${want.toFixed(2)}s`);
+    const norm = path.join(work, `norm_${fp.index}.mp4`);
     await normalize(raw, norm, manifest.width, manifest.height);
+    const fitted = path.join(work, `swapped_${fp.index}.mp4`);
+    await trimTo(norm, want, fitted);
+    log(`  piece ${fp.index} ready at ${(await duration(fitted)).toFixed(2)}s`);
     await fs.rm(raw, { force: true });
-    swappedPieces[fp.index] = norm;
+    await fs.rm(norm, { force: true });
+    swappedPieces[fp.index] = fitted;
   }
   mark("swap");
 
-  // 2) Stitch in original order: keep pieces from cache, face pieces swapped
+  // 4) stitch in original order: keep pieces from cache, face pieces from swap
   const ordered = manifest.pieces.map((p) => (p.kind === "face" ? swappedPieces[p.index] : p.file));
+  for (const p of manifest.pieces) {
+    const f = p.kind === "face" ? swappedPieces[p.index] : p.file;
+    log(`  stitch input ${p.index} ${p.kind} ${p.start}-${p.end}s = ${(await duration(f)).toFixed(2)}s`);
+  }
   const stitched = path.join(work, "stitched.mp4");
   await concat(ordered, stitched);
+  log(`  stitched to ${(await duration(stitched)).toFixed(2)}s (master is ${manifest.total.toFixed(2)}s)`);
   mark("stitch");
 
-  // 3) Optional watermark
+  // 5) optional watermark
   let videoForMux = stitched;
   if (config.watermark) {
     try {
@@ -95,12 +115,13 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
     }
   }
 
-  // 4) Re-attach the original master audio
+  // 6) mux original master audio
   const final = path.join(config.outputsDir, `${jobId}.mp4`);
   await muxAudio(videoForMux, config.masterVideo, final);
+  log(`  final ${(await duration(final)).toFixed(2)}s`);
   mark("mux");
 
-  // 5) Delete the user's photo immediately (privacy)
+  // 7) delete the user's face photo immediately (privacy)
   try { await fs.unlink(facePath); } catch {}
   await fs.rm(work, { recursive: true, force: true });
   mark("cleanup");

@@ -1,5 +1,6 @@
 import { config } from "./config.js";
 import { runSwapJob } from "./pipeline.js";
+import { sendReadyEmail } from "./notify.js";
 
 /**
  * Two queue backends with one interface:
@@ -22,19 +23,13 @@ function memoryQueue() {
       jobs.set(jobId, { state: "waiting", data, logs: [] });
       chain = chain.then(async () => {
         const j = jobs.get(jobId);
-        const tag = jobId.slice(0, 8);
         j.state = "active";
         try {
-          const r = await runSwapJob({
-            jobId,
-            facePath: data.facePath,
-            log: (m) => { console.log(`[${tag}] ${m}`); j.logs.push(m); },
-          });
+          const r = await runSwapJob({ jobId, facePath: data.facePath, log: (m) => j.logs.push(m) });
           j.state = "completed";
           j.timings = r.timings;
-          console.log(`[${tag}] done`, JSON.stringify(r.timings));
         } catch (e) {
-          console.error(`[${tag}] FAILED: ${e.message}`);
+          console.error("job failed", jobId, e);
           j.state = "failed";
         }
       });
@@ -56,21 +51,7 @@ async function redisQueue() {
   const queue = new Queue("swap", { connection: redis });
   new Worker(
     "swap",
-    async (job) => {
-      const tag = String(job.data.jobId).slice(0, 8);
-      const log = (m) => {
-        console.log(`[${tag}] ${m}`);
-        job.log(m).catch(() => {});
-      };
-      try {
-        const r = await runSwapJob({ jobId: job.data.jobId, facePath: job.data.facePath, log });
-        console.log(`[${tag}] done`, JSON.stringify(r.timings));
-        return r.timings;
-      } catch (e) {
-        console.error(`[${tag}] FAILED: ${e.message}`);
-        throw e;
-      }
-    },
+    async (job) => (await runSwapJob({ jobId: job.data.jobId, facePath: job.data.facePath, log: (m) => job.log(m) })).timings,
     { connection: redis, concurrency: Number(process.env.CONCURRENCY || 2) },
   );
   return {

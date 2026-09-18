@@ -10,9 +10,8 @@ const run = promisify(execFile);
 // guarantees identical codec, GOP, pixel format and timebase at the joins.
 const VIDEO_ARGS = [
   "-c:v", "libx264",
-  "-preset", "veryfast",
-  "-threads", "1",
-  "-crf", "20",
+  "-preset", "medium",
+  "-crf", "18",
   "-pix_fmt", "yuv420p",
   "-r", "25",
   "-g", "25",
@@ -141,4 +140,20 @@ export function planPieces(total, faceSegments) {
   }
   if (cursor < total - 0.01) pieces.push({ kind: "keep", start: cursor, end: total });
   return pieces;
+}
+
+/**
+ * Re-encode to an exact duration with our shared settings. Generated clips can
+ * come back longer than asked and with odd timestamps, which breaks concat, so
+ * every piece passes through this before stitching.
+ */
+export async function trimTo(input, secs, output) {
+  await ffmpeg([
+    "-i", input,
+    "-t", String(secs),
+    "-an",
+    ...VIDEO_ARGS,
+    output,
+  ]);
+  return output;
 }
