@@ -4,13 +4,14 @@ import * as magichour from "./magichour.js";
 import * as vmodel from "./vmodel.js";
 import * as akool from "./akool.js";
 import * as charreplace from "./charreplace.js";
+import * as falai from "./falai.js";
 
 /**
  * Every provider exports:
  *   swapVideo({ videoPath, facePath, outPath, log }) -> Promise<outPath>
  * It must download the finished swapped video to outPath.
  */
-const providers = { mock, magichour, vmodel, akool, charreplace };
+const providers = { mock, magichour, vmodel, akool, charreplace, falai };
 
 export function getProvider(name = config.provider) {
   const p = providers[name];
