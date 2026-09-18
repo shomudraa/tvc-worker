@@ -1,18 +1,3 @@
-The file is 51 lines and 1.69 KB, but the full provider is about 95 lines and 2.8 KB. So the paste cut off partway through, and `export async function swapVideo` never made it in.
-
-Click the pencil, select everything, delete, and paste again. This time scroll to the bottom of the editor before committing and confirm the last three lines are:
-
-```javascript
-  await fs.rm(raw, { force: true });
-  return outPath;
-}
-```
-
-If you don't see those, the paste truncated again.
-
-Here's the file:
-
-```javascript
 import fs from "node:fs/promises";
 import path from "node:path";
 import { duration, ffmpeg } from "../ffmpeg.js";
@@ -110,4 +95,3 @@ export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }
   await fs.rm(raw, { force: true });
   return outPath;
 }
-```
