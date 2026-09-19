@@ -5,20 +5,33 @@ import path from "node:path";
 
 const run = promisify(execFile);
 
-// Shared encode settings so every piece matches and the stitch has no seam.
-// Re-encoding every piece (rather than stream copy) is deliberate: it
-// guarantees identical codec, GOP, pixel format and timebase at the joins.
-const VIDEO_ARGS = [
-  "-c:v", "libx264",
-  "-preset", "medium",
-  "-crf", "18",
-  "-pix_fmt", "yuv420p",
-  "-r", "25",
-  "-g", "25",
-  "-keyint_min", "25",
-  "-sc_threshold", "0",
-  "-movflags", "+faststart",
-];
+/**
+ * Every piece is re-encoded with identical settings so the stitch has no seam.
+ *
+ * The frame rate is NOT hardcoded. It is taken from the master video and
+ * threaded through every step. Forcing a fixed rate onto a master shot at a
+ * different one (24 vs 25, say) makes ffmpeg duplicate or drop frames in each
+ * piece, and the rounding at every boundary accumulates until the picture runs
+ * out of step with the audio track that gets attached at the end.
+ */
+const DEFAULT_FPS = 25;
+
+function videoArgs(fps = DEFAULT_FPS) {
+  const r = String(fps);
+  return [
+    "-c:v", "libx264",
+    "-preset", "veryfast",
+    "-threads", "1",
+    "-crf", "20",
+    "-pix_fmt", "yuv420p",
+    "-r", r,
+    "-g", r,
+    "-keyint_min", r,
+    "-sc_threshold", "0",
+    "-video_track_timescale", "90000",
+    "-movflags", "+faststart",
+  ];
+}
 
 export async function ffmpeg(args) {
   const { stderr } = await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args], {
@@ -42,26 +55,32 @@ export async function duration(file) {
   return Number(info.format.duration);
 }
 
-/**
- * Cut a video segment [start, end) with re-encode, video only (audio is
- * re-attached from the master at the end so it never drifts).
- */
-export async function cutSegment(input, start, end, output) {
+/** Frame rate of a file, as a number. "24/1" -> 24, "30000/1001" -> 29.97. */
+export async function frameRate(file) {
+  const info = await probe(file);
+  const v = info.streams.find((s) => s.codec_type === "video");
+  if (!v?.r_frame_rate) return DEFAULT_FPS;
+  const [n, d] = v.r_frame_rate.split("/").map(Number);
+  const fps = d ? n / d : n;
+  return Number.isFinite(fps) && fps > 0 ? fps : DEFAULT_FPS;
+}
+
+/** Cut [start, end) with re-encode. Audio is dropped; the master's own audio
+ *  track is attached once at the very end so it can never drift. */
+export async function cutSegment(input, start, end, output, fps) {
   await ffmpeg([
     "-ss", String(start),
     "-to", String(end),
     "-i", input,
     "-an",
-    ...VIDEO_ARGS,
+    ...videoArgs(fps),
     output,
   ]);
   return output;
 }
 
-/**
- * Concatenate several already-matching video files into one.
- */
-export async function concat(files, output) {
+/** Join already-matching pieces. */
+export async function concat(files, output, fps) {
   const listFile = output + ".txt";
   await fs.writeFile(listFile, files.map((f) => `file '${path.resolve(f)}'`).join("\n"));
   await ffmpeg([
@@ -69,47 +88,51 @@ export async function concat(files, output) {
     "-safe", "0",
     "-i", listFile,
     "-an",
-    ...VIDEO_ARGS,
+    ...videoArgs(fps),
     output,
   ]);
   await fs.unlink(listFile);
   return output;
 }
 
-/**
- * Normalize a file returned by the swap provider so it matches our encode
- * settings and the master's resolution (providers sometimes return a
- * different fps or size).
- */
-export async function normalize(input, output, width, height) {
+/** Force a provider's clip to the master's size and frame rate. */
+export async function normalize(input, output, width, height, fps) {
   await ffmpeg([
     "-i", input,
     "-an",
     "-vf", `scale=${width}:${height}:flags=lanczos,setsar=1`,
-    ...VIDEO_ARGS,
+    ...videoArgs(fps),
     output,
   ]);
   return output;
 }
 
-/**
- * Overlay a PNG watermark bottom-right.
- */
-export async function watermark(input, png, output) {
+/** Re-encode to an exact duration. Generated clips come back longer than asked
+ *  and with odd timestamps, which breaks concat, so every piece passes here. */
+export async function trimTo(input, secs, output, fps) {
+  await ffmpeg([
+    "-i", input,
+    "-t", String(secs),
+    "-an",
+    ...videoArgs(fps),
+    output,
+  ]);
+  return output;
+}
+
+export async function watermark(input, png, output, fps) {
   await ffmpeg([
     "-i", input,
     "-i", png,
     "-filter_complex", "[1]scale=iw*0.6:-1[wm];[0][wm]overlay=W-w-40:H-h-40",
     "-an",
-    ...VIDEO_ARGS,
+    ...videoArgs(fps),
     output,
   ]);
   return output;
 }
 
-/**
- * Final mux: take the stitched video and the ORIGINAL master audio track.
- */
+/** Final mux: stitched picture plus the ORIGINAL master audio, untouched. */
 export async function muxAudio(video, master, output) {
   await ffmpeg([
     "-i", video,
@@ -126,10 +149,7 @@ export async function muxAudio(video, master, output) {
   return output;
 }
 
-/**
- * Build the piece plan for a master of given length and face segments.
- * Returns ordered pieces: {kind:'face'|'keep', start, end}
- */
+/** Ordered pieces for a master of `total` seconds and the given face windows. */
 export function planPieces(total, faceSegments) {
   const pieces = [];
   let cursor = 0;
@@ -140,20 +160,4 @@ export function planPieces(total, faceSegments) {
   }
   if (cursor < total - 0.01) pieces.push({ kind: "keep", start: cursor, end: total });
   return pieces;
-}
-
-/**
- * Re-encode to an exact duration with our shared settings. Generated clips can
- * come back longer than asked and with odd timestamps, which breaks concat, so
- * every piece passes through this before stitching.
- */
-export async function trimTo(input, secs, output) {
-  await ffmpeg([
-    "-i", input,
-    "-t", String(secs),
-    "-an",
-    ...VIDEO_ARGS,
-    output,
-  ]);
-  return output;
 }

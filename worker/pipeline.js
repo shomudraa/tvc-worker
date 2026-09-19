@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";
-import { cutSegment, concat, normalize, trimTo, watermark, muxAudio, duration, probe, planPieces } from "./ffmpeg.js";
+import { cutSegment, concat, normalize, trimTo, watermark, muxAudio, duration, frameRate, probe, planPieces } from "./ffmpeg.js";
 import { getProvider } from "./providers/index.js";
 
 /**
@@ -20,13 +20,14 @@ export async function prepareSegments({ force = false } = {}) {
     } catch {}
   }
   const total = await duration(config.masterVideo);
+  const fps = await frameRate(config.masterVideo);
   const pieces = planPieces(total, config.faceSegments);
 
   const manifest = { total, pieces: [], facePieces: [], joinedFace: null };
   for (let i = 0; i < pieces.length; i++) {
     const p = pieces[i];
     const file = path.join(config.segmentsDir, `${String(i).padStart(2, "0")}_${p.kind}.mp4`);
-    await cutSegment(config.masterVideo, p.start, p.end, file);
+    await cutSegment(config.masterVideo, p.start, p.end, file, fps);
     const entry = { ...p, file, index: i };
     manifest.pieces.push(entry);
     if (p.kind === "face") manifest.facePieces.push(entry);
@@ -40,11 +41,12 @@ export async function prepareSegments({ force = false } = {}) {
   const v = info.streams.find((s) => s.codec_type === "video");
   manifest.width = v.width;
   manifest.height = v.height;
+  manifest.fps = fps;
   manifest.masterMtime = (await fs.stat(config.masterVideo)).mtimeMs;
   manifest.segmentsKey = JSON.stringify(config.faceSegments);
 
   await fs.writeFile(path.join(config.segmentsDir, "manifest.json"), JSON.stringify(manifest, null, 2));
-  console.log(`master ${total.toFixed(2)}s ${manifest.width}x${manifest.height}, pieces:`);
+  console.log(`master ${total.toFixed(3)}s ${manifest.width}x${manifest.height} @${fps}fps, pieces:`);
   for (const p of manifest.pieces) console.log(`  ${p.index} ${p.kind} ${p.start}-${p.end}s`);
   return manifest;
 }
@@ -81,9 +83,9 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
     const want = fp.end - fp.start;
     log(`  provider returned ${(await duration(raw)).toFixed(2)}s, need ${want.toFixed(2)}s`);
     const norm = path.join(work, `norm_${fp.index}.mp4`);
-    await normalize(raw, norm, manifest.width, manifest.height);
+    await normalize(raw, norm, manifest.width, manifest.height, manifest.fps);
     const fitted = path.join(work, `swapped_${fp.index}.mp4`);
-    await trimTo(norm, want, fitted);
+    await trimTo(norm, want, fitted, manifest.fps);
     log(`  piece ${fp.index} ready at ${(await duration(fitted)).toFixed(2)}s`);
     await fs.rm(raw, { force: true });
     await fs.rm(norm, { force: true });
@@ -98,7 +100,7 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
     log(`  stitch input ${p.index} ${p.kind} ${p.start}-${p.end}s = ${(await duration(f)).toFixed(2)}s`);
   }
   const stitched = path.join(work, "stitched.mp4");
-  await concat(ordered, stitched);
+  await concat(ordered, stitched, manifest.fps);
   log(`  stitched to ${(await duration(stitched)).toFixed(2)}s (master is ${manifest.total.toFixed(2)}s)`);
   mark("stitch");
 
@@ -108,7 +110,7 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
     try {
       await fs.access(config.watermark);
       videoForMux = path.join(work, "watermarked.mp4");
-      await watermark(stitched, config.watermark, videoForMux);
+      await watermark(stitched, config.watermark, videoForMux, manifest.fps);
       mark("watermark");
     } catch {
       log("watermark file not found, skipping");
