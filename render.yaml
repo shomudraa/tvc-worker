@@ -1,0 +1,51 @@
+# Render blueprint for the worker.
+#
+# Render > New > Blueprint, point it at this repo, and it picks this file up.
+# The worker runs from the Dockerfile at the repo root, which installs FFmpeg.
+#
+# Notes:
+#   - Do NOT use the free instance type. It sleeps when idle, and a sleeping
+#     worker drops renders that are still in flight and adds a cold start on
+#     the first visitor of the day.
+#   - The disk keeps finished videos across deploys and restarts. Without it a
+#     redeploy loses every output that has not been downloaded yet.
+#   - Secrets are marked sync: false, so Render asks for them in the dashboard
+#     instead of reading them from this file. Never commit a key here.
+
+services:
+  - type: web
+    name: tvc-worker
+    runtime: docker
+    plan: standard
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+
+    disk:
+      name: outputs
+      mountPath: /app/outputs
+      sizeGB: 10
+
+    envVars:
+      - key: QUEUE
+        value: redis
+      - key: PORT
+        value: 4000
+      - key: PROVIDER
+        value: higgsfield
+      - key: FACE_SEGMENTS
+        value: 0-10,26-29
+
+      # Upstash Redis connection string
+      - key: REDIS_URL
+        sync: false
+      # Higgsfield Open API, as KEY_ID:KEY_SECRET
+      - key: HF_KEY
+        sync: false
+      # Kill switch token for POST /admin/pause
+      - key: ADMIN_TOKEN
+        sync: false
+      # Where the public site lives, for CORS
+      - key: SITE_ORIGIN
+        value: https://face-swap-tvc.vercel.app
