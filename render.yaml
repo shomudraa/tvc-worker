@@ -46,6 +46,3 @@ services:
       # Kill switch token for POST /admin/pause
       - key: ADMIN_TOKEN
         sync: false
-      # Where the public site lives, for CORS
-      - key: SITE_ORIGIN
-        value: https://face-swap-tvc.vercel.app
