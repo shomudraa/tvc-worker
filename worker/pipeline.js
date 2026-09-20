@@ -79,7 +79,7 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
   for (const fp of manifest.facePieces) {
     const raw = path.join(work, `raw_${fp.index}.mp4`);
     log(`swapping segment ${fp.start}-${fp.end}s`);
-    await provider.swapVideo({ videoPath: fp.file, facePath, outPath: raw, log });
+    await provider.swapVideo({ videoPath: fp.file, facePath, outPath: raw, log, start: fp.start, end: fp.end });
     const want = fp.end - fp.start;
     log(`  provider returned ${(await duration(raw)).toFixed(2)}s, need ${want.toFixed(2)}s`);
     const norm = path.join(work, `norm_${fp.index}.mp4`);
