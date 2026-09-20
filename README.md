@@ -66,13 +66,13 @@ Production: `QUEUE=redis npm run worker` with `REDIS_URL` set (Upstash works), b
 
 ## Hosting layout
 
-- Site (static, `web/`): Vercel. Live at https://face-swap-tvc.vercel.app
-- Worker (`worker/`, needs FFmpeg and a long running process): Render, using `render.yaml` in this repo
+One service on Render. The worker serves the site itself (`express.static(web/)`), so the page and the API share one origin. There is no separate frontend host, no CORS, and nothing to wire together.
 
-Connect them:
-1. In Render, click **New > Blueprint** and point it at this repo. It reads `render.yaml`, builds from the `Dockerfile` (which installs FFmpeg) and asks you for the secrets marked `sync: false`: `REDIS_URL` (Upstash), `HF_KEY`, `ADMIN_TOKEN`. Check that `PROVIDER`, `FACE_SEGMENTS` and `SITE_ORIGIN` match what you want. Upload the real TVC as `assets/master.mp4` (commit it to this private repo, or fetch it from R2 at boot).
-2. Copy the Render service URL (`https://tvc-worker.onrender.com`) into `web/config.js` as `WORKER_URL`, redeploy the site to Vercel.
-3. Open the site. The footer shows "Rendering service is not connected yet" until step 2 is done.
+1. In Render, click **New > Blueprint** and point it at this repo. It reads `render.yaml`, builds from the `Dockerfile` (which installs FFmpeg) and asks you for the secrets marked `sync: false`: `REDIS_URL` (Upstash), `HF_KEY`, `ADMIN_TOKEN`. Check that `PROVIDER` and `FACE_SEGMENTS` match what you want.
+2. Upload the real TVC as `assets/master.mp4` (commit it to this repo, or fetch it from R2 at boot).
+3. Open the Render service URL. That is the live site.
+
+Leave `WORKER_URL` empty in `web/config.js` and leave `SITE_ORIGIN` unset. Both exist only for the case where the site is hosted somewhere separate from the worker, which is not this setup.
 
 Two Render specifics that bite:
 
