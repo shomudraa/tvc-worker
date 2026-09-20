@@ -113,15 +113,48 @@ async function uploadFile(localPath, log) {
   }
 
   const bytes = await fs.readFile(localPath);
-  const put = await fetch(slot.upload_url, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: bytes,
-  });
-  if (!put.ok) throw new Error(`Higgsfield upload -> ${put.status} ${await put.text()}`);
+  await putSigned(slot.upload_url, bytes, contentType, log);
 
   log(`higgsfield: uploaded ${path.basename(localPath)} (${(bytes.length / 1e6).toFixed(2)} MB)`);
   return slot.public_url;
+}
+
+/**
+ * PUT the bytes to a presigned S3 URL.
+ *
+ * The signature covers an exact set of headers, listed in the URL's
+ * X-Amz-SignedHeaders parameter. Sending Content-Type when the signature did
+ * not cover it, or omitting it when it did, both come back as
+ * 403 SignatureDoesNotMatch. So read the list and send only what was signed,
+ * then fall back to the other shape if S3 still refuses.
+ */
+async function putSigned(url, bytes, contentType, log) {
+  let signed = [];
+  try {
+    signed = (new URL(url).searchParams.get("X-Amz-SignedHeaders") || "")
+      .toLowerCase()
+      .split(";")
+      .filter(Boolean);
+  } catch {}
+
+  const withType = { "Content-Type": contentType };
+  const order = signed.includes("content-type") ? [withType, {}] : [{}, withType];
+
+  let last = "";
+  for (let i = 0; i < order.length; i++) {
+    const res = await fetch(url, { method: "PUT", headers: order[i], body: bytes });
+    if (res.ok) {
+      if (i > 0) log("higgsfield: upload needed the fallback header shape");
+      return;
+    }
+    last = `${res.status} ${(await res.text()).slice(0, 300)}`;
+    // Only a signature rejection is worth a second shape. Anything else
+    // (expired URL, size limit, network) will fail the same way twice.
+    if (res.status !== 403) break;
+  }
+  throw new Error(
+    `Higgsfield upload -> ${last} (signed headers: ${signed.join(";") || "none"})`
+  );
 }
 
 /**
