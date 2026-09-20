@@ -36,5 +36,7 @@ export const config = {
     magichour: process.env.MAGIC_HOUR_API_KEY || "",
     akool: process.env.AKOOL_API_KEY || "",
     vmodel: process.env.VMODEL_API_KEY || "",
+    // Higgsfield Open API, as "KEY_ID:KEY_SECRET"
+    higgsfield: process.env.HF_KEY || process.env.HF_CREDENTIALS || "",
   },
 };
