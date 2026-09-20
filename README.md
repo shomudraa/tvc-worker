@@ -33,17 +33,51 @@ Open http://localhost:4000 on your computer, or on your phone using your compute
 
 Real provider: put `MAGIC_HOUR_API_KEY=...` and `PROVIDER=magichour` in `.env`, restart. To test the pipeline without the site: `FACE=./selfie.jpg npm run test:pipeline`.
 
+## Higgsfield provider (`PROVIDER=higgsfield`)
+
+Uses the Higgsfield Open API, model `minimax/h3/reference-to-video`. Get a key at https://open.higgsfield.ai/api-keys and set:
+
+```
+PROVIDER=higgsfield
+HF_KEY=KEY_ID:KEY_SECRET
+```
+
+Optional:
+
+| Var | Default | What it does |
+| --- | --- | --- |
+| `HF_MODEL` | `minimax/h3/reference-to-video` | any Higgsfield model id with the same input shape |
+| `HF_PROMPT` | see `worker/providers/higgsfield.js` | the generation prompt, this is the main quality lever |
+| `HF_RESOLUTION` | `2K` | only option H3 offers today |
+| `HF_ASPECT_RATIO` | `auto` | `adaptive`, `21:9`, `16:9`, `4:3`, `1:1`, `3:4`, `9:16` |
+| `HF_VIDEO_REF` | `1` | `0` sends the selfie only, without the original segment |
+| `HF_AIGC_WATERMARK` | `0` | `1` lets Higgsfield stamp its AI watermark |
+| `HF_POLL_SECONDS` | `900` | how long to wait for one render |
+
+Three things to know before this goes to the client:
+
+1. **H3 regenerates, it does not edit.** Magic Hour Character Replace keeps the master's frames and swaps the performer. H3 reads the references and renders a new clip that resembles them. The swapped seconds will look close to the TVC, not identical to it. Check the cut against the untouched seconds on real footage first.
+2. **References travel as URLs.** The segment and the selfie are pushed to Higgsfield's CDN (`POST /files/generate-upload-url`, then a PUT). The returned URL is unguessable but public, and there is no delete endpoint, so assume the selfie and the output sit there for at least seven days. `web/privacy.html` needs a line saying so.
+3. **Minimum render is 5 seconds.** H3 takes whole seconds from 5 to 15. The 26 to 29s segment is 3 seconds, so it is rendered at 5 and trimmed back. You pay for 5.
+
+Cost at the listed `$0.13` per 2K second: the 10s segment plus the 5s minimum on the tail segment is about `$1.95` per visitor. Confirm against your own dashboard rate before opening the campaign.
+
 Production: `QUEUE=redis npm run worker` with `REDIS_URL` set (Upstash works), behind Cloudflare.
 
 ## Hosting layout
 
 - Site (static, `web/`): Vercel. Live at https://face-swap-tvc.vercel.app
-- Worker (`worker/`, needs FFmpeg and a long running process): Railway, using `railway.json` in this repo
+- Worker (`worker/`, needs FFmpeg and a long running process): Render, using `render.yaml` in this repo
 
 Connect them:
-1. Deploy this repo to Railway. Set env vars from `.env.example`, plus `QUEUE=redis`, `REDIS_URL` (Upstash), `PROVIDER`, the provider API key, `ADMIN_TOKEN`, and `SITE_ORIGIN=https://face-swap-tvc.vercel.app`. Upload the real TVC as `assets/master.mp4` (commit it to a private repo or fetch it from R2 at boot).
-2. Copy the Railway public URL into `web/config.js` as `WORKER_URL`, redeploy the site to Vercel.
+1. In Render, click **New > Blueprint** and point it at this repo. It reads `render.yaml`, builds from the `Dockerfile` (which installs FFmpeg) and asks you for the secrets marked `sync: false`: `REDIS_URL` (Upstash), `HF_KEY`, `ADMIN_TOKEN`. Check that `PROVIDER`, `FACE_SEGMENTS` and `SITE_ORIGIN` match what you want. Upload the real TVC as `assets/master.mp4` (commit it to this private repo, or fetch it from R2 at boot).
+2. Copy the Render service URL (`https://tvc-worker.onrender.com`) into `web/config.js` as `WORKER_URL`, redeploy the site to Vercel.
 3. Open the site. The footer shows "Rendering service is not connected yet" until step 2 is done.
+
+Two Render specifics that bite:
+
+- **Do not use the free instance type.** It sleeps when idle. A sleeping worker drops renders that are still in flight, and the first visitor of the day waits through a cold start.
+- **Keep the disk.** Render's filesystem is wiped on every deploy. The blueprint mounts a disk at `/app/outputs` so finished videos survive a redeploy. Without it, anyone who has not downloaded yet loses their video the next time you push.
 
 ## Rebranding
 
