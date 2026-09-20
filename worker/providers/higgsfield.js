@@ -113,22 +113,44 @@ async function uploadFile(localPath, log) {
   }
 
   const bytes = await fs.readFile(localPath);
-  await putSigned(slot.upload_url, bytes, contentType, log);
+  await putSigned(slot.upload_url, bytes, contentType, slot, log);
 
   log(`higgsfield: uploaded ${path.basename(localPath)} (${(bytes.length / 1e6).toFixed(2)} MB)`);
   return slot.public_url;
 }
 
 /**
+ * Headers the upload slot itself hands us, for signed headers we cannot guess.
+ *
+ * The API has only ever documented upload_url and public_url, but the response
+ * is plain JSON and may carry more. These are the field names worth checking
+ * for the S3 object tag that the presigner signs.
+ */
+function slotHeaders(slot) {
+  const out = {};
+  for (const k of ["headers", "required_headers", "upload_headers"]) {
+    if (slot[k] && typeof slot[k] === "object") Object.assign(out, slot[k]);
+  }
+  const tag = slot.tagging ?? slot.x_amz_tagging ?? slot["x-amz-tagging"] ?? slot.tags;
+  if (typeof tag === "string") out["x-amz-tagging"] = tag;
+  return out;
+}
+
+/**
  * PUT the bytes to a presigned S3 URL.
  *
- * The signature covers an exact set of headers, listed in the URL's
- * X-Amz-SignedHeaders parameter. Sending Content-Type when the signature did
- * not cover it, or omitting it when it did, both come back as
- * 403 SignatureDoesNotMatch. So read the list and send only what was signed,
- * then fall back to the other shape if S3 still refuses.
+ * The signature covers an exact set of headers, named in the URL's
+ * X-Amz-SignedHeaders parameter. Every one of them must be present on the
+ * request, with the exact value that was signed. Send one too many or one too
+ * few and S3 answers 403 SignatureDoesNotMatch.
+ *
+ * Higgsfield signs content-type;host;x-amz-tagging. The host header is the
+ * client's job, content-type we know, and the tag is whatever their presigner
+ * used. If the slot response tells us, we use it. Otherwise the most likely
+ * case by far is an empty tag, because that is what an empty tag list
+ * serialises to, so try that before giving up.
  */
-async function putSigned(url, bytes, contentType, log) {
+async function putSigned(url, bytes, contentType, slot, log) {
   let signed = [];
   try {
     signed = (new URL(url).searchParams.get("X-Amz-SignedHeaders") || "")
@@ -137,24 +159,52 @@ async function putSigned(url, bytes, contentType, log) {
       .filter(Boolean);
   } catch {}
 
-  const withType = { "Content-Type": contentType };
-  const order = signed.includes("content-type") ? [withType, {}] : [{}, withType];
+  const known = { "content-type": contentType, ...lowerKeys(slotHeaders(slot)) };
+
+  // Build exactly what the signature asked for, out of what we know. `host` is
+  // set by the HTTP client itself and must not be passed in by hand.
+  const exact = {};
+  const missing = [];
+  for (const name of signed) {
+    if (name === "host") continue;
+    if (known[name] !== undefined) exact[name] = known[name];
+    else missing.push(name);
+  }
+
+  const attempts = [exact];
+  // An unknown tag is almost certainly the empty one.
+  if (missing.includes("x-amz-tagging")) {
+    attempts.push({ ...exact, "x-amz-tagging": "" });
+  }
+  // Last resorts, in case the signed list is not the whole story.
+  attempts.push({ "content-type": contentType });
+  attempts.push({});
 
   let last = "";
-  for (let i = 0; i < order.length; i++) {
-    const res = await fetch(url, { method: "PUT", headers: order[i], body: bytes });
+  for (let i = 0; i < attempts.length; i++) {
+    const res = await fetch(url, { method: "PUT", headers: attempts[i], body: bytes });
     if (res.ok) {
-      if (i > 0) log("higgsfield: upload needed the fallback header shape");
+      log(`higgsfield: upload accepted with headers [${Object.keys(attempts[i]).join(", ") || "none"}]`);
       return;
     }
-    last = `${res.status} ${(await res.text()).slice(0, 300)}`;
-    // Only a signature rejection is worth a second shape. Anything else
-    // (expired URL, size limit, network) will fail the same way twice.
+    last = `${res.status} ${(await res.text()).slice(0, 200)}`;
+    // Only a signature rejection is worth another shape. Anything else
+    // (expired URL, size limit, network) will fail the same way every time.
     if (res.status !== 403) break;
   }
+
   throw new Error(
-    `Higgsfield upload -> ${last} (signed headers: ${signed.join(";") || "none"})`
+    `Higgsfield upload -> ${last} ` +
+      `(signed: ${signed.join(";") || "none"}; ` +
+      `could not supply: ${missing.join(";") || "none"}; ` +
+      `slot fields: ${Object.keys(slot).join(",")})`
   );
+}
+
+function lowerKeys(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) out[k.toLowerCase()] = v;
+  return out;
 }
 
 /**
