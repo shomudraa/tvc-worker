@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { config } from "../config.js";
-import { duration } from "../ffmpeg.js";
+import { duration, ffmpeg } from "../ffmpeg.js";
 
 /**
  * Higgsfield Open API, MiniMax H3 Reference-to-Video.
@@ -39,6 +39,9 @@ import { duration } from "../ffmpeg.js";
  *   HF_PROMPT         the generation prompt, see DEFAULT_PROMPT below
  *   HF_RESOLUTION     default 2K (the only option H3 offers today)
  *   HF_ASPECT_RATIO   auto (default), adaptive, 21:9, 16:9, 4:3, 1:1, 3:4, 9:16
+ *   HF_AUDIO_REF      1 (default) sends the master's audio for this segment so
+ *                     the model has dialogue to sync the mouth to. 0 turns it
+ *                     off and the performer's lips will not match the voice.
  *   HF_VIDEO_REF      1 (default) sends the original segment as a video
  *                     reference, 0 sends the selfie only
  *   HF_AIGC_WATERMARK 1 to let Higgsfield stamp its AI watermark, default 0
@@ -51,8 +54,10 @@ const DEFAULT_PROMPT =
   "Recreate the reference video shot for shot. Keep the same location, lighting, " +
   "wardrobe, framing and camera movement. The person in the reference photo is the " +
   "performer on screen, with their face and likeness, performing the same actions " +
-  "with the same timing. Photorealistic, broadcast commercial quality, no captions, " +
-  "no on screen text, no logos.";
+  "with the same timing. The performer speaks the reference audio: mouth shapes, jaw " +
+  "and tongue follow every syllable of that voice track, starting and stopping exactly " +
+  "with it, closed lips through the silences. Photorealistic, broadcast commercial " +
+  "quality, no captions, no on screen text, no logos.";
 
 const MIME = {
   ".jpg": "image/jpeg",
@@ -61,6 +66,9 @@ const MIME = {
   ".webp": "image/webp",
   ".mp4": "video/mp4",
   ".mov": "video/quicktime",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".wav": "audio/wav",
 };
 
 function credentials() {
@@ -236,7 +244,7 @@ async function download(url, outPath) {
   return outPath;
 }
 
-export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }) {
+export async function swapVideo({ videoPath, facePath, outPath, start, end, log = () => {} }) {
   credentials(); // fail fast and clearly if HF_KEY is missing or malformed
   const model = process.env.HF_MODEL || "minimax/h3/reference-to-video";
   const secs = await duration(videoPath);
@@ -248,11 +256,44 @@ export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }
   }
 
   const sendVideoRef = process.env.HF_VIDEO_REF !== "0";
-  log(`higgsfield: uploading references${sendVideoRef ? " (segment + selfie)" : " (selfie only)"}`);
-  const [imageUrl, videoUrl] = await Promise.all([
+  const sendAudioRef = process.env.HF_AUDIO_REF !== "0" && Number.isFinite(start) && Number.isFinite(end);
+
+  // The cached face segments are cut with -an, so the clip we send is silent.
+  // Without a voice track the model has nothing to sync the mouth to and the
+  // lips just move generically. Pull this window's audio off the master and
+  // send it too, so the dialogue drives the performance.
+  const workDir = path.dirname(outPath);
+  let audioPath = null;
+  if (sendAudioRef) {
+    audioPath = path.join(workDir, `refaudio_${start}_${end}.mp3`);
+    try {
+      await ffmpeg([
+        "-ss", String(start),
+        "-to", String(end),
+        "-i", config.masterVideo,
+        "-vn",
+        "-acodec", "libmp3lame",
+        "-q:a", "4",
+        "-y",
+        audioPath,
+      ]);
+    } catch (e) {
+      log(`higgsfield: no usable audio for ${start}-${end}s (${e.message.slice(0, 120)}), sending without it`);
+      audioPath = null;
+    }
+  }
+
+  const parts = ["selfie"];
+  if (sendVideoRef) parts.push("segment");
+  if (audioPath) parts.push("audio");
+  log(`higgsfield: uploading references (${parts.join(" + ")})`);
+
+  const [imageUrl, videoUrl, audioUrl] = await Promise.all([
     uploadFile(facePath, log),
     sendVideoRef ? uploadFile(videoPath, log) : Promise.resolve(null),
+    audioPath ? uploadFile(audioPath, log) : Promise.resolve(null),
   ]);
+  if (audioPath) await fs.rm(audioPath, { force: true });
 
   const input = {
     prompt: process.env.HF_PROMPT || DEFAULT_PROMPT,
@@ -263,6 +304,7 @@ export async function swapVideo({ videoPath, facePath, outPath, log = () => {} }
     image_urls: [imageUrl],
   };
   if (videoUrl) input.video_urls = [videoUrl];
+  if (audioUrl) input.audio_urls = [audioUrl];
 
   log(`higgsfield: submitting to ${model}, ${want}s at ${input.resolution}`);
   const job = await api(`/${model}`, {
