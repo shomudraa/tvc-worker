@@ -66,8 +66,9 @@ const MIME = {
   ".webp": "image/webp",
   ".mp4": "video/mp4",
   ".mov": "video/quicktime",
-  ".mp3": "audio/mpeg",
-  ".m4a": "audio/mp4",
+  // The upload endpoint accepts only these: image/png, image/jpeg, image/jpg,
+  // image/gif, image/webp, audio/x-wav, audio/wav, video/mp4. Anything else
+  // comes back as a 422 from /files/generate-upload-url, so no mp3 or m4a.
   ".wav": "audio/wav",
 };
 
@@ -265,15 +266,16 @@ export async function swapVideo({ videoPath, facePath, outPath, start, end, log 
   const workDir = path.dirname(outPath);
   let audioPath = null;
   if (sendAudioRef) {
-    audioPath = path.join(workDir, `refaudio_${start}_${end}.mp3`);
+    audioPath = path.join(workDir, `refaudio_${start}_${end}.wav`);
     try {
       await ffmpeg([
         "-ss", String(start),
         "-to", String(end),
         "-i", config.masterVideo,
         "-vn",
-        "-acodec", "libmp3lame",
-        "-q:a", "4",
+        "-acodec", "pcm_s16le",
+        "-ar", "16000",
+        "-ac", "1",
         "-y",
         audioPath,
       ]);
