@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";
-import { cutSegment, concat, normalize, trimTo, watermark, muxAudio, duration, frameRate, probe, planPieces } from "./ffmpeg.js";
+import { cutSegment, concat, normalizeTo, watermark, muxAudio, duration, frameRate, probe, planPieces } from "./ffmpeg.js";
 import { getProvider } from "./providers/index.js";
 
 /**
@@ -82,13 +82,10 @@ export async function runSwapJob({ jobId, facePath, providerName = config.provid
     await provider.swapVideo({ videoPath: fp.file, facePath, outPath: raw, log, start: fp.start, end: fp.end });
     const want = fp.end - fp.start;
     log(`  provider returned ${(await duration(raw)).toFixed(2)}s, need ${want.toFixed(2)}s`);
-    const norm = path.join(work, `norm_${fp.index}.mp4`);
-    await normalize(raw, norm, manifest.width, manifest.height, manifest.fps);
     const fitted = path.join(work, `swapped_${fp.index}.mp4`);
-    await trimTo(norm, want, fitted, manifest.fps);
+    await normalizeTo(raw, fitted, manifest.width, manifest.height, manifest.fps, want);
     log(`  piece ${fp.index} ready at ${(await duration(fitted)).toFixed(2)}s`);
     await fs.rm(raw, { force: true });
-    await fs.rm(norm, { force: true });
     swappedPieces[fp.index] = fitted;
   }
   mark("swap");
