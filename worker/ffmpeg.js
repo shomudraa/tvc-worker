@@ -16,12 +16,17 @@ const run = promisify(execFile);
  */
 const DEFAULT_FPS = 25;
 
+// x264 was pinned to a single thread, which left most of the machine idle on
+// every encode. 0 means "use every core". Set FFMPEG_THREADS to go back to 1
+// if a build ever needs the old deterministic single threaded behaviour.
+const THREADS = String(process.env.FFMPEG_THREADS ?? 0);
+
 function videoArgs(fps = DEFAULT_FPS) {
   const r = String(fps);
   return [
     "-c:v", "libx264",
     "-preset", "veryfast",
-    "-threads", "1",
+    "-threads", THREADS,
     "-crf", "20",
     "-pix_fmt", "yuv420p",
     "-r", r,
@@ -79,10 +84,43 @@ export async function cutSegment(input, start, end, output, fps) {
   return output;
 }
 
-/** Join already-matching pieces. */
+/**
+ * Join already-matching pieces.
+ *
+ * Every piece is encoded with the same settings, by cutSegment or by
+ * normalizeTo, so the streams line up and can be joined without re-encoding.
+ * That matters a lot: a re-encode here rebuilds the ENTIRE master on every
+ * single job, even though the keep pieces are identical for every visitor.
+ * Copying is roughly a hundred times faster.
+ *
+ * If the pieces ever stop matching, ffmpeg either errors or writes a file of
+ * the wrong length, so the result is measured and a real encode takes over.
+ */
 export async function concat(files, output, fps) {
   const listFile = output + ".txt";
   await fs.writeFile(listFile, files.map((f) => `file '${path.resolve(f)}'`).join("\n"));
+
+  let want = 0;
+  for (const f of files) want += await duration(f);
+
+  try {
+    await ffmpeg([
+      "-f", "concat",
+      "-safe", "0",
+      "-i", listFile,
+      "-an",
+      "-c", "copy",
+      "-movflags", "+faststart",
+      output,
+    ]);
+    if (Math.abs((await duration(output)) - want) <= 0.25) {
+      await fs.unlink(listFile);
+      return output;
+    }
+  } catch {
+    // fall through to the re-encode
+  }
+
   await ffmpeg([
     "-f", "concat",
     "-safe", "0",
@@ -92,6 +130,14 @@ export async function concat(files, output, fps) {
     output,
   ]);
   await fs.unlink(listFile);
+
+  // A real mismatch between pieces (different size, say) confuses the concat
+  // demuxer and the timestamps run away, which used to ship a visitor a video
+  // of the wrong length with no warning. Fail the job instead.
+  const got = await duration(output);
+  if (Math.abs(got - want) > 0.5) {
+    throw new Error(`concat produced ${got.toFixed(2)}s, expected ${want.toFixed(2)}s: the pieces do not match`);
+  }
   return output;
 }
 
@@ -114,6 +160,21 @@ export async function trimTo(input, secs, output, fps) {
     "-i", input,
     "-t", String(secs),
     "-an",
+    ...videoArgs(fps),
+    output,
+  ]);
+  return output;
+}
+
+/** One pass: force a provider's clip to the master's size and frame rate AND
+ *  cut it to the exact segment length. This replaces a normalize followed by a
+ *  trimTo, which encoded the same clip twice. */
+export async function normalizeTo(input, output, width, height, fps, secs) {
+  await ffmpeg([
+    "-i", input,
+    "-t", String(secs),
+    "-an",
+    "-vf", `scale=${width}:${height}:flags=lanczos,setsar=1`,
     ...videoArgs(fps),
     output,
   ]);
