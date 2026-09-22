@@ -34,7 +34,7 @@ test("working branch prompt and generation settings are preserved", async () => 
   assert.equal(DEFAULT_PROMPT, Function(`return (${expression})`)());
   const input = referenceInput(3, settings({}), { imageUrl: "image", videoUrl: "video", audioUrl: "audio" });
   assert.equal(input.duration, 5);
-  assert.equal(input.resolution, "2K");
+  assert.equal(input.resolution, "768P");
   assert.equal(input.aspect_ratio, "adaptive");
   assert.deepEqual(input.reference_audio_urls, ["audio"]);
   assert.equal(referenceInput(10, settings({}), { imageUrl: "image" }).duration, 10);

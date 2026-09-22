@@ -16,7 +16,7 @@ export const DEFAULT_PROMPT =
 
 export function settings(env = process.env) {
   // MODEL is pinned in code. Ignore stale deployment values from older versions.
-  const resolution = (env.FAL_RESOLUTION || "2K").trim().toUpperCase();
+  const resolution = (env.FAL_RESOLUTION || "768P").trim().toUpperCase();
   if (!["480P", "768P", "2K", "4K"].includes(resolution)) {
     throw new Error("Invalid FAL_RESOLUTION. Use 480P, 768P, 2K or 4K.");
   }
