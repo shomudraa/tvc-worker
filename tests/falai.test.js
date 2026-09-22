@@ -34,14 +34,14 @@ test("working branch prompt and generation settings are preserved", async () => 
   assert.equal(DEFAULT_PROMPT, Function(`return (${expression})`)());
   const input = referenceInput(3, settings({}), { imageUrl: "image", videoUrl: "video", audioUrl: "audio" });
   assert.equal(input.duration, 5);
-  assert.equal(input.resolution, "768P");
+  assert.equal(input.resolution, "480P");
   assert.equal(input.aspect_ratio, "adaptive");
   assert.deepEqual(input.reference_audio_urls, ["audio"]);
   assert.equal(referenceInput(10, settings({}), { imageUrl: "image" }).duration, 10);
 });
 test("stale model settings are ignored and unsupported references are rejected", () => {
-  assert.deepEqual(settings({ FAL_MODEL: "minimax/h3-max/reference-to-video" }), settings({}));
-  assert.throws(() => settings({ FAL_RESOLUTION: "1080P" }));
+  assert.deepEqual(settings({ FAL_MODEL: "minimax/h3/reference-to-video" }), settings({}));
+  assert.throws(() => settings({ FAL_RESOLUTION: "2K" }));
   assert.throws(() => referenceInput(16, settings({}), { videoUrl: "video" }));
   assert.throws(() => getProvider("higgsfield"));
   assert.equal(getProvider().swapVideo, swapVideo);
@@ -60,7 +60,7 @@ test("adapter uploads correct types, sends audio, downloads, and cleans failed u
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "fal-adapter-"));
   const oldKey = process.env.FAL_KEY;
   const oldModel = process.env.FAL_MODEL;
-  process.env.FAL_MODEL = "minimax/h3-max/reference-to-video";
+  process.env.FAL_MODEL = "minimax/h3/reference-to-video";
   process.env.FAL_KEY = "test-only-key";
   mock.method(globalThis, "fetch", async () => new Response("video bytes"));
   try {
@@ -69,7 +69,9 @@ test("adapter uploads correct types, sends audio, downloads, and cleans failed u
     const args = { facePath, videoPath, outPath, start: 26, end: 29 };
     await swapVideo(args);
     assert.deepEqual(uploads.sort(), ["audio/wav", "image/png", "video/mp4"]);
-    assert.equal(requests[0].model, MODEL);
+    assert.equal(requests[0].model, "minimax/h3-max/reference-to-video");
+    assert.equal(requests[0].input.resolution, "480P");
+    assert.equal(requests[0].input.prompt_expansion_mode, "balanced");
     assert.equal(requests[0].input.duration, 5);
     assert.equal(requests[0].input.reference_audio_urls.length, 1);
     assert.equal(await fs.readFile(outPath, "utf8"), "video bytes");

@@ -36,9 +36,9 @@ services:
       - key: PROVIDER
         value: falai
       - key: FAL_MODEL
-        value: minimax/h3/reference-to-video
+        value: minimax/h3-max/reference-to-video
       - key: FAL_RESOLUTION
-        value: 768P
+        value: 480P
       - key: FACE_SEGMENTS
         value: 0-10,26-29
 
