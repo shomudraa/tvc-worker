@@ -56,7 +56,7 @@ export function falError(error) {
   const detail = error?.body?.detail;
   const message = typeof detail === "string" ? detail : error?.message || "Unknown error";
   if (error?.status === 401 || error?.status === 403 || /No user found for Key ID and Secret|unauthorized|invalid.{0,15}(key|credential)/i.test(message)) {
-    return "fal authentication failed. Update FAL_KEY in the worker environment with a valid fal.ai API key, then redeploy. A Higgsfield or MiniMax key cannot authenticate with fal.ai.";
+    return "fal authentication failed. Check FAL_KEY in the active worker environment and fal service status. If the key was changed, redeploy. Higgsfield and MiniMax keys cannot authenticate with fal.ai.";
   }
   return message;
 }

@@ -18,7 +18,7 @@ FAL_KEY=<your fal.ai API key>
 
 The worker always selects fal.ai even if an old `PROVIDER` value remains in the environment. A different `FAL_MODEL` is rejected to prevent accidentally switching away from H3. Old provider credentials are unused.
 
-The screenshot error `No user found for Key ID and Secret` is an authentication failure before generation. Replace the invalid or revoked fal key; changing the selfie cannot fix it.
+The screenshot error `No user found for Key ID and Secret` is an authentication failure before generation. Check which deployment and key the failed request used, and retry a non-generation authentication check before rotating a recently working key. Changing the selfie cannot fix authentication.
 
 ## Preserved generation behavior
 

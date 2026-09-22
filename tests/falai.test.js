@@ -53,7 +53,7 @@ test("legacy prompt and aspect settings survive migration", () => {
   assert.equal(options.audioRef, false);
 });
 test("authentication failures identify the server key", () => {
-  assert.match(falError(new Error("No user found for Key ID and Secret")), /Update FAL_KEY/);
+  assert.match(falError(new Error("No user found for Key ID and Secret")), /Check FAL_KEY/);
   assert.match(falError({ status: 401 }), /authentication failed/);
 });
 test("adapter uploads correct types, sends audio, downloads, and cleans failed uploads", async () => {
@@ -73,7 +73,7 @@ test("adapter uploads correct types, sends audio, downloads, and cleans failed u
     assert.equal(await fs.readFile(outPath, "utf8"), "video bytes");
     assert.equal((await fs.readdir(dir)).some(x => x.endsWith(".wav")), false);
     rejectUpload = true;
-    await assert.rejects(swapVideo(args), /Update FAL_KEY/);
+    await assert.rejects(swapVideo(args), /Check FAL_KEY/);
     assert.equal(requests.length, 1);
     assert.equal((await fs.readdir(dir)).some(x => x.endsWith(".wav")), false);
   } finally {
