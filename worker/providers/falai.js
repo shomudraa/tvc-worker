@@ -3,15 +3,15 @@ import path from "node:path";
 import { config } from "../config.js";
 import { duration, ffmpeg } from "../ffmpeg.js";
 
-export const MODEL = "minimax/h3/reference-to-video";
+export const MODEL = "minimax/h3-max/reference-to-video";
 import { DEFAULT_PROMPT } from "./fal-prompt.js";
 export { DEFAULT_PROMPT };
 
 export function settings(env = process.env) {
   // MODEL is pinned in code. Ignore stale deployment values from older versions.
-  const resolution = (env.FAL_RESOLUTION || "2K").trim().toUpperCase();
-  if (!["480P", "768P", "2K", "4K"].includes(resolution)) {
-    throw new Error("Invalid FAL_RESOLUTION. H3 supports 480P, 768P, 2K or 4K.");
+  const resolution = (env.FAL_RESOLUTION || "480P").trim().toUpperCase();
+  if (!["480P", "768P", "1080P"].includes(resolution)) {
+    throw new Error("Invalid FAL_RESOLUTION. H3 Max supports 480P, 768P or 1080P.");
   }
   const aspect = (env.FAL_ASPECT || env.HF_ASPECT_RATIO || "adaptive").trim();
   const aspectRatio = aspect === "auto" ? "adaptive" : aspect;
@@ -35,6 +35,7 @@ export function referenceInput(seconds, options, { imageUrl, videoUrl, audioUrl 
   }
   const input = {
     prompt: options.prompt,
+    prompt_expansion_mode: "balanced",
     duration: Math.min(15, Math.max(5, Math.ceil(seconds))),
     resolution: options.resolution,
     aspect_ratio: options.aspect_ratio,
