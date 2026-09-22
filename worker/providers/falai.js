@@ -1,10 +1,52 @@
 import fs from "node:fs/promises";
-import { duration } from "../ffmpeg.js";
+import path from "node:path";
+import { config } from "../config.js";
+import { duration, ffmpeg } from "../ffmpeg.js";
 
-const DEFAULT_MODEL =
-  "fal-ai/kling-video/o3/pro/video-to-video/edit";
+/**
+ * fal.ai adapter.
+ *
+ * Four request shapes are supported, picked from FAL_MODEL:
+ *
+ *   h3-reference        minimax/h3-max/reference-to-video   (and plain h3)
+ *                       The one we use. Takes the selfie, the original segment
+ *                       and that window's audio as three separate reference
+ *                       lists, so the model has the scene, the face and the
+ *                       voice. Same model and same price as MiniMax's own API
+ *                       ($0.05 / $0.08 / $0.16 per second at 480P / 768P /
+ *                       1080P) and fal adds the 1080P tier that MiniMax direct
+ *                       does not offer for H3 Max.
+ *
+ *   video-edit          fal-ai/kling-video/.../video-to-video/edit
+ *   motion-control      fal-ai/kling-video/.../motion-control
+ *   reference-to-video  bytedance/seedance-.../reference-to-video
+ *
+ * Env:
+ *   FAL_KEY              fal credentials
+ *   FAL_MODEL            default minimax/h3-max/reference-to-video
+ *   FAL_PROMPT           overrides the shape's default prompt
+ *   FAL_RESOLUTION       480P, 768P (default) or 1080P on the h3 shapes
+ *   FAL_ASPECT           default adaptive on h3, 16:9 on seedance
+ *   FAL_EXPANSION        disabled (default), balanced or quality. Leave it on
+ *                        disabled: the other two let fal rewrite the prompt,
+ *                        which throws away the body lock wording and the actor
+ *                        starts walking again
+ *   FAL_AUDIO_REF        1 (default) sends the window's audio for lip sync
+ *   FAL_SEED             fixed seed for repeatable tests
+ */
+
+const DEFAULT_MODEL = "minimax/h3-max/reference-to-video";
 
 const DEFAULT_PROMPTS = {
+  "h3-reference":
+    "Recreate Video 1 shot for shot. Keep the same location, lighting, wardrobe, " +
+    "framing and camera movement as Video 1. The person in Image 1 is the performer " +
+    "on screen, with their face and likeness. The performer is stationary: both feet " +
+    "stay planted on the ground, no walking and no stepping, only the head, face, eyes " +
+    "and hands move. The performer speaks Audio 1, with mouth shapes following every " +
+    "syllable of that voice and closed lips through the silences. Photorealistic, " +
+    "broadcast commercial quality, no captions, no on screen text, no logos.",
+
   "video-edit":
     "Replace the face of the person in @Video1 with the face from @Image1. " +
     "Preserve the original movements, camera angles, clothing, background and lighting.",
@@ -18,32 +60,34 @@ const DEFAULT_PROMPTS = {
     "Keep the face from [Image1] exact and photoreal.",
 };
 
+// H3 and H3 Max on fal, both reference-to-video.
+const H3_LIMITS = {
+  "minimax/h3-max/reference-to-video": { min: 5, max: 15 },
+  "minimax/h3/reference-to-video": { min: 4, max: 15 },
+};
+
+const H3_RESOLUTIONS = ["480P", "768P", "1080P"];
+
 function shapeFor(model) {
-  if (
-    model.startsWith("fal-ai/kling-video/") &&
-    model.endsWith("/video-to-video/edit")
-  ) {
+  if (H3_LIMITS[model]) return "h3-reference";
+
+  if (model.startsWith("fal-ai/kling-video/") && model.endsWith("/video-to-video/edit")) {
     return "video-edit";
   }
 
-  if (
-    model.startsWith("fal-ai/kling-video/") &&
-    model.endsWith("/motion-control")
-  ) {
+  if (model.startsWith("fal-ai/kling-video/") && model.endsWith("/motion-control")) {
     return "motion-control";
   }
 
-  if (
-    model.startsWith("bytedance/seedance-") &&
-    model.endsWith("/reference-to-video")
-  ) {
+  if (model.startsWith("bytedance/seedance-") && model.endsWith("/reference-to-video")) {
     return "reference-to-video";
   }
 
   throw new Error(
-    "Unsupported FAL_MODEL for this adapter. Use " +
-      DEFAULT_MODEL +
-      " for editing the original video."
+    `Unsupported FAL_MODEL "${model}". Use ${DEFAULT_MODEL} for H3 Max, or one of: ` +
+      Object.keys(H3_LIMITS).join(", ") +
+      ", fal-ai/kling-video/*/video-to-video/edit, fal-ai/kling-video/*/motion-control, " +
+      "bytedance/seedance-*/reference-to-video."
   );
 }
 
@@ -54,11 +98,7 @@ async function getFal() {
 
   if (!configured) {
     const key = (process.env.FAL_KEY || "").trim();
-
-    if (!key) {
-      throw new Error("FAL_KEY missing");
-    }
-
+    if (!key) throw new Error("FAL_KEY missing");
     fal.config({ credentials: key });
     configured = true;
   }
@@ -71,29 +111,45 @@ async function uploadLocal(fal, localPath, mime) {
   return fal.storage.upload(new Blob([buffer], { type: mime }));
 }
 
-export async function swapVideo({
-  videoPath,
-  facePath,
-  outPath,
-  log = () => {},
-}) {
+/** Pull this window's audio off the master, since the cached segments are silent. */
+async function extractAudio(start, end, outPath, log) {
+  try {
+    await ffmpeg([
+      "-ss", String(start),
+      "-to", String(end),
+      "-i", config.masterVideo,
+      "-vn",
+      "-acodec", "pcm_s16le",
+      "-ar", "16000",
+      "-ac", "1",
+      "-y",
+      outPath,
+    ]);
+    return outPath;
+  } catch (e) {
+    log(`falai: no usable audio for ${start}-${end}s (${e.message.slice(0, 120)})`);
+    return null;
+  }
+}
+
+export async function swapVideo({ videoPath, facePath, outPath, start, end, log = () => {} }) {
   const model = (process.env.FAL_MODEL || DEFAULT_MODEL).trim();
   const shape = shapeFor(model);
   const fal = await getFal();
 
-  const prompt =
-    (process.env.FAL_PROMPT || "").trim() ||
-    DEFAULT_PROMPTS[shape];
-
+  const prompt = (process.env.FAL_PROMPT || "").trim() || DEFAULT_PROMPTS[shape];
   const seconds = await duration(videoPath);
 
-  if (
-    shape === "video-edit" &&
-    (seconds < 3 || seconds > 15)
-  ) {
+  if (shape === "video-edit" && (seconds < 3 || seconds > 15)) {
     throw new Error(
-      `Kling video editing requires a 3–15 second input clip; ` +
-        `received ${seconds.toFixed(2)} seconds.`
+      `Kling video editing requires a 3-15 second input clip; received ${seconds.toFixed(2)} seconds.`
+    );
+  }
+
+  if (shape === "h3-reference" && (seconds < 2 || seconds > 15)) {
+    throw new Error(
+      `fal reference video clips must be 2-15 seconds; received ${seconds.toFixed(2)} seconds. ` +
+        `Adjust FACE_SEGMENTS.`
     );
   }
 
@@ -108,29 +164,65 @@ export async function swapVideo({
       uploadLocal(fal, facePath, "image/png"),
     ]);
   } catch (error) {
-    throw new Error(
-      `fal upload failed: ${error.message || "Unknown error"}`,
-      { cause: error }
-    );
+    throw new Error(`fal upload failed: ${error.message || "Unknown error"}`, { cause: error });
   }
 
   let input;
 
-  if (shape === "video-edit") {
-    // A single selfie is an image reference.
-    // The prompt must refer to it as @Image1, not @Element1.
+  if (shape === "h3-reference") {
+    const limits = H3_LIMITS[model];
+    const want = Math.min(limits.max, Math.max(limits.min, Math.ceil(seconds)));
+
+    const resolution = (process.env.FAL_RESOLUTION || "768P").toUpperCase();
+    if (!H3_RESOLUTIONS.includes(resolution)) {
+      throw new Error(`FAL_RESOLUTION must be one of ${H3_RESOLUTIONS.join(", ")}, not ${resolution}`);
+    }
+
+    // Audio reference: without it the model invents mouth movement.
+    const references = ["Image 1", "Video 1"];
+    let audioUrl = null;
+
+    if (process.env.FAL_AUDIO_REF !== "0" && Number.isFinite(start) && Number.isFinite(end)) {
+      const audioPath = path.join(path.dirname(outPath), `falaudio_${start}_${end}.wav`);
+      const made = await extractAudio(start, end, audioPath, log);
+      if (made) {
+        try {
+          audioUrl = await uploadLocal(fal, made, "audio/wav");
+          references.push("Audio 1");
+        } finally {
+          await fs.rm(made, { force: true });
+        }
+      }
+    }
+
     input = {
       prompt,
-      video_url: videoUrl,
-      image_urls: [imageUrl],
+      // balanced/quality let fal rewrite the prompt, which loses the body lock.
+      prompt_expansion_mode: process.env.FAL_EXPANSION || "disabled",
+      reference_image_urls: [imageUrl],
+      reference_video_urls: [videoUrl],
+      duration: want,
+      resolution,
+      aspect_ratio: process.env.FAL_ASPECT || "adaptive",
     };
+
+    if (audioUrl) input.reference_audio_urls = [audioUrl];
+    if (process.env.FAL_SEED) input.seed = Number(process.env.FAL_SEED);
+
+    if (want !== Math.round(seconds)) {
+      log(`falai: segment is ${seconds.toFixed(2)}s, asking for ${want}s and trimming after`);
+    }
+    log(`falai: ${resolution} ${want}s, refs (${references.join(" + ")}), expansion ${input.prompt_expansion_mode}`);
+  } else if (shape === "video-edit") {
+    // A single selfie is an image reference.
+    // The prompt must refer to it as @Image1, not @Element1.
+    input = { prompt, video_url: videoUrl, image_urls: [imageUrl] };
   } else if (shape === "motion-control") {
     input = {
       prompt,
       image_url: imageUrl,
       video_url: videoUrl,
-      character_orientation:
-        process.env.FAL_ORIENTATION || "video",
+      character_orientation: process.env.FAL_ORIENTATION || "video",
     };
   } else {
     // This input shape is for Seedance, not Kling.
@@ -138,9 +230,7 @@ export async function swapVideo({
       prompt,
       image_urls: [imageUrl],
       video_urls: [videoUrl],
-      duration: String(
-        Math.max(4, Math.min(15, Math.round(seconds)))
-      ),
+      duration: String(Math.max(4, Math.min(15, Math.round(seconds)))),
       resolution: process.env.FAL_RESOLUTION || "480p",
       aspect_ratio: process.env.FAL_ASPECT || "16:9",
       generate_audio: process.env.FAL_AUDIO === "true",
@@ -149,6 +239,7 @@ export async function swapVideo({
 
   log(`falai: ${model} (${shape})`);
 
+  const startedAt = Date.now();
   let result;
 
   try {
@@ -156,48 +247,29 @@ export async function swapVideo({
       input,
       logs: true,
       onQueueUpdate: (update) => {
-        if (
-          update.status === "IN_PROGRESS" &&
-          update.logs?.length
-        ) {
-          log(
-            `falai: ${
-              update.logs[update.logs.length - 1].message
-            }`
-          );
+        if (update.status === "IN_PROGRESS" && update.logs?.length) {
+          log(`falai: ${update.logs[update.logs.length - 1].message}`);
         } else if (update.status) {
           log(`falai: ${update.status}`);
         }
       },
     });
   } catch (error) {
-    throw new Error(
-      `fal generation failed: ${error.message || "Unknown error"}`,
-      { cause: error }
-    );
+    throw new Error(`fal generation failed: ${error.message || "Unknown error"}`, { cause: error });
   }
 
   const data = result?.data ?? result;
   const url = data?.video?.url;
 
-  if (!url) {
-    throw new Error("fal returned no video URL");
-  }
+  if (!url) throw new Error("fal returned no video URL");
+
+  log(`falai: render took ${((Date.now() - startedAt) / 1000).toFixed(0)}s`);
+  if (data?.timings) log(`falai: timings ${JSON.stringify(data.timings).slice(0, 200)}`);
 
   log("falai: downloading result");
-
   const response = await fetch(url);
+  if (!response.ok) throw new Error(`fal download failed: HTTP ${response.status}`);
 
-  if (!response.ok) {
-    throw new Error(
-      `fal download failed: HTTP ${response.status}`
-    );
-  }
-
-  await fs.writeFile(
-    outPath,
-    Buffer.from(await response.arrayBuffer())
-  );
-
+  await fs.writeFile(outPath, Buffer.from(await response.arrayBuffer()));
   return outPath;
 }
