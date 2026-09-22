@@ -15,9 +15,7 @@ export const DEFAULT_PROMPT =
   "quality, no captions, no on screen text, no logos.";
 
 export function settings(env = process.env) {
-  if (env.FAL_MODEL && env.FAL_MODEL.trim() !== MODEL) {
-    throw new Error(`FAL_MODEL must be ${MODEL}; this version preserves MiniMax H3.`);
-  }
+  // MODEL is pinned in code. Ignore stale deployment values from older versions.
   const resolution = (env.FAL_RESOLUTION || "2K").trim().toUpperCase();
   if (!["480P", "768P", "2K", "4K"].includes(resolution)) {
     throw new Error("Invalid FAL_RESOLUTION. Use 480P, 768P, 2K or 4K.");

@@ -39,8 +39,8 @@ test("working branch prompt and generation settings are preserved", async () => 
   assert.deepEqual(input.reference_audio_urls, ["audio"]);
   assert.equal(referenceInput(10, settings({}), { imageUrl: "image" }).duration, 10);
 });
-test("model switches and unsupported video references are rejected", () => {
-  assert.throws(() => settings({ FAL_MODEL: "minimax/h3-max/reference-to-video" }));
+test("stale model settings are ignored and unsupported references are rejected", () => {
+  assert.deepEqual(settings({ FAL_MODEL: "minimax/h3-max/reference-to-video" }), settings({}));
   assert.throws(() => settings({ FAL_RESOLUTION: "1080P" }));
   assert.throws(() => referenceInput(16, settings({}), { videoUrl: "video" }));
   assert.throws(() => getProvider("higgsfield"));
@@ -59,6 +59,8 @@ test("authentication failures identify the server key", () => {
 test("adapter uploads correct types, sends audio, downloads, and cleans failed uploads", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "fal-adapter-"));
   const oldKey = process.env.FAL_KEY;
+  const oldModel = process.env.FAL_MODEL;
+  process.env.FAL_MODEL = "minimax/h3-max/reference-to-video";
   process.env.FAL_KEY = "test-only-key";
   mock.method(globalThis, "fetch", async () => new Response("video bytes"));
   try {
@@ -78,6 +80,7 @@ test("adapter uploads correct types, sends audio, downloads, and cleans failed u
     assert.equal((await fs.readdir(dir)).some(x => x.endsWith(".wav")), false);
   } finally {
     if (oldKey === undefined) delete process.env.FAL_KEY; else process.env.FAL_KEY = oldKey;
+    if (oldModel === undefined) delete process.env.FAL_MODEL; else process.env.FAL_MODEL = oldModel;
     mock.restoreAll(); await fs.rm(dir, { recursive: true, force: true });
   }
 });

@@ -16,7 +16,7 @@ FAL_KEY=<your fal.ai API key>
 
 `FAL_KEY` must come from https://fal.ai/dashboard/keys. Higgsfield and MiniMax credentials do not work with fal.ai. Never put the key in frontend code or commit it. Existing Render services must update their environment in the dashboard; editing the blueprint alone does not replace an existing secret. Redeploy after updating the key.
 
-The worker always selects fal.ai even if an old `PROVIDER` value remains in the environment. A different `FAL_MODEL` is rejected to prevent accidentally switching away from H3. Old provider credentials are unused.
+The worker always selects fal.ai even if an old `PROVIDER` value remains in the environment. The model is pinned to MiniMax H3 in code; stale `FAL_MODEL` values are ignored. Old provider credentials are unused.
 
 The screenshot error `No user found for Key ID and Secret` is an authentication failure before generation. Check which deployment and key the failed request used, and retry a non-generation authentication check before rotating a recently working key. Changing the selfie cannot fix authentication.
 
