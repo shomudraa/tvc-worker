@@ -40,10 +40,12 @@ import { duration, ffmpeg } from "../ffmpeg.js";
  *                        plain H3  480P, 768P, 2K, 4K
  *                        H3 Max    480P, 768P, 1080P
  *   FAL_ASPECT           default adaptive on h3, 16:9 on seedance
- *   FAL_EXPANSION        disabled (default), balanced or quality. Leave it on
- *                        disabled: the other two let fal rewrite the prompt,
- *                        which throws away the body lock wording and the actor
- *                        starts walking again
+ *   FAL_EXPANSION        balanced (default), disabled, fast or quality.
+ *                        Higgsfield never set this, so MiniMax's own expansion
+ *                        was on for the runs where the scene held. Expansion
+ *                        fills in scene detail and helps the video reference
+ *                        win over the photo. Set it to disabled only when
+ *                        testing exact prompt wording
  *   FAL_AUDIO_REF        1 (default) sends the window's audio for lip sync
  *   FAL_SEED             fixed seed for repeatable tests
  */
@@ -51,30 +53,27 @@ import { duration, ffmpeg } from "../ffmpeg.js";
 const DEFAULT_MODEL = "minimax/h3/reference-to-video";
 
 const DEFAULT_PROMPTS = {
-  // Identity first, scene second. fal's own example names what each reference
-  // IS before describing the shot. An earlier version opened with "reproduce
-  // Video 1 exactly" and the model did precisely that: it returned the
-  // reference clip with no swap at all.
+  // THIS IS THE KNOWN GOOD PROMPT. Word for word what the Higgsfield provider
+  // sent to the same model, where the scene held correctly.
+  //
+  // It leads with "recreate the reference video". That ordering is what keeps
+  // the scene. Two rewrites proved it the hard way:
+  //   - A heavy "reproduce Video 1 exactly, identical, identical" version made
+  //     the model return the reference clip with no swap at all.
+  //   - An identity first version ("Image 1 is the person...") flipped the
+  //     weight onto the photo and produced a selfie style video instead of the
+  //     commercial's scene.
+  //
+  // Its one known weakness is that the performer sometimes walks. Fix that with
+  // a single added sentence and test it on its own. Do not restructure this.
   "h3-reference":
-    "Image 1 is the person. Video 1 shows the scene, the framing, the camera move " +
-    "and the body motion. Audio 1 is the speech. " +
-    "Generate the scene of Video 1 performed by the person from Image 1. The person " +
-    "on screen has the face, skin tone, facial structure, hairline and hair of Image 1, " +
-    "held consistent in every frame with no drift and no morphing. Natural skin with " +
-    "visible pores and fine texture, realistic subsurface scattering, catchlights in " +
-    "both eyes, no waxy or plastic skin, no beauty smoothing. " +
-    "The person stands in the same spot as in Video 1, wears the same clothing, and is " +
-    "lit the same way, with the same key, fill and rim placement, the same colour " +
-    "temperature and the same contrast. The background, the props and the depth of field " +
-    "match Video 1. " +
-    "The person stays planted in one place for the whole shot. No walking, no stepping, " +
-    "no pacing, no change of standing position. Only the head, face, eyes and hands move, " +
-    "following the motion in Video 1. " +
-    "The person speaks Audio 1, with lips and jaw following every syllable and closing " +
-    "fully through the silences. " +
-    "Photorealistic live action, broadcast television commercial quality, clean and noise " +
-    "free, natural motion blur, no captions, no subtitles, no on screen text, no " +
-    "watermark, no logo.",
+    "Recreate the reference video shot for shot. Keep the same location, lighting, " +
+    "wardrobe, framing and camera movement. The person in the reference photo is the " +
+    "performer on screen, with their face and likeness, performing the same actions " +
+    "with the same timing. The performer speaks the reference audio: mouth shapes, jaw " +
+    "and tongue follow every syllable of that voice track, starting and stopping exactly " +
+    "with it, closed lips through the silences. Photorealistic, broadcast commercial " +
+    "quality, no captions, no on screen text, no logos.",
 
   "video-edit":
     "Replace the face of the person in @Video1 with the face from @Image1. " +
@@ -272,8 +271,10 @@ export async function swapVideo({ videoPath, facePath, outPath, start, end, log 
 
     input = {
       prompt,
-      // balanced/quality let fal rewrite the prompt, which loses the body lock.
-      prompt_expansion_mode: process.env.FAL_EXPANSION || "disabled",
+      // Matches the Higgsfield setup, where this was left at MiniMax's own
+      // default. Expansion adds scene detail and keeps the video reference
+      // from being overpowered by the selfie.
+      prompt_expansion_mode: process.env.FAL_EXPANSION || "balanced",
       reference_image_urls: [imageUrl],
       reference_video_urls: [videoUrl],
       duration: want,
