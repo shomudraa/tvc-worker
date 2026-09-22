@@ -106,9 +106,46 @@ async function getFal() {
   return fal;
 }
 
-async function uploadLocal(fal, localPath, mime) {
+const MIME = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".webm": "video/webm",
+  ".wav": "audio/wav",
+  ".mp3": "audio/mpeg",
+};
+
+/**
+ * Upload a local file to fal storage.
+ *
+ * The content type MUST match the real bytes. fal stores the file under the
+ * type given here, and the model decodes it by that type, so labelling a JPEG
+ * as image/png makes H3 Max reject the whole request with 422 Unprocessable
+ * Entity. Our selfies arrive as .jpg from validate.js, so the type is read
+ * from the extension rather than assumed.
+ */
+async function uploadLocal(fal, localPath) {
+  const ext = path.extname(localPath).toLowerCase();
+  const mime = MIME[ext];
+  if (!mime) throw new Error(`fal upload: unsupported file type ${ext || "(none)"} for ${path.basename(localPath)}`);
   const buffer = await fs.readFile(localPath);
   return fal.storage.upload(new Blob([buffer], { type: mime }));
+}
+
+/** fal puts the useful part of a 422 in body.detail. Surface it. */
+function falErrorText(error) {
+  const detail = error?.body?.detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d) => `${Array.isArray(d.loc) ? d.loc.join(".") : d.loc || "?"}: ${d.msg || d.type || ""}`)
+      .join("; ");
+  }
+  if (typeof detail === "string") return detail;
+  if (error?.body) return JSON.stringify(error.body).slice(0, 400);
+  return error?.message || "Unknown error";
 }
 
 /** Pull this window's audio off the master, since the cached segments are silent. */
@@ -160,11 +197,11 @@ export async function swapVideo({ videoPath, facePath, outPath, start, end, log 
 
   try {
     [videoUrl, imageUrl] = await Promise.all([
-      uploadLocal(fal, videoPath, "video/mp4"),
-      uploadLocal(fal, facePath, "image/png"),
+      uploadLocal(fal, videoPath),
+      uploadLocal(fal, facePath),
     ]);
   } catch (error) {
-    throw new Error(`fal upload failed: ${error.message || "Unknown error"}`, { cause: error });
+    throw new Error(`fal upload failed: ${falErrorText(error)}`, { cause: error });
   }
 
   let input;
@@ -187,7 +224,7 @@ export async function swapVideo({ videoPath, facePath, outPath, start, end, log 
       const made = await extractAudio(start, end, audioPath, log);
       if (made) {
         try {
-          audioUrl = await uploadLocal(fal, made, "audio/wav");
+          audioUrl = await uploadLocal(fal, made);
           references.push("Audio 1");
         } finally {
           await fs.rm(made, { force: true });
@@ -255,7 +292,9 @@ export async function swapVideo({ videoPath, facePath, outPath, start, end, log 
       },
     });
   } catch (error) {
-    throw new Error(`fal generation failed: ${error.message || "Unknown error"}`, { cause: error });
+    const detail = falErrorText(error);
+    log(`falai: request rejected -> ${detail}`);
+    throw new Error(`fal generation failed: ${detail}`, { cause: error });
   }
 
   const data = result?.data ?? result;
