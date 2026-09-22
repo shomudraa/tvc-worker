@@ -16,7 +16,7 @@ export const DEFAULT_PROMPT =
 
 export function settings(env = process.env) {
   // MODEL is pinned in code. Ignore stale deployment values from older versions.
-  const resolution = (env.FAL_RESOLUTION || "480P").trim().toUpperCase();
+  const resolution = (env.FAL_RESOLUTION || "768P").trim().toUpperCase();
   if (!["480P", "768P", "1080P"].includes(resolution)) {
     throw new Error("Invalid FAL_RESOLUTION. H3 Max supports 480P, 768P or 1080P.");
   }

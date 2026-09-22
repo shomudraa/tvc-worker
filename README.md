@@ -9,7 +9,7 @@ Deploy `main` on the existing Render service using `render.yaml`. Keep the exist
 ```
 PROVIDER=falai
 FAL_MODEL=minimax/h3-max/reference-to-video
-FAL_RESOLUTION=480P
+FAL_RESOLUTION=768P
 FACE_SEGMENTS=0-10,26-29
 FAL_KEY=<your fal.ai API key>
 ```
@@ -22,7 +22,7 @@ The screenshot error `No user found for Key ID and Secret` is an authentication 
 
 ## Preserved generation behavior
 
-Each face segment is generated separately with the selfie, source video segment and that window's 16 kHz mono WAV audio. The prompt explicitly assigns Image 1 as the sole face identity, Video 1 as the scene and motion reference, and Audio 1 as the speech reference. The original or custom scene directions are included under that identity assignment. Requested durations round up to whole seconds and are clamped to 5–15 seconds, just like the working branch; the three-second tail renders five seconds and is trimmed back. The current comparison uses H3 Max at 480p with prompt expansion disabled so fal does not rewrite these directions. fal's `adaptive` aspect setting replaces Higgsfield's `auto`.
+Each face segment is generated separately with the selfie, source video segment and that window's 16 kHz mono WAV audio. The prompt explicitly assigns Image 1 as the sole face identity, Video 1 as the scene and motion reference, and Audio 1 as the speech reference. The original or custom scene directions are included under that identity assignment. Requested durations round up to whole seconds and are clamped to 5–15 seconds, just like the working branch; the three-second tail renders five seconds and is trimmed back. The current comparison uses H3 Max at 768p with prompt expansion disabled so fal does not rewrite these directions. fal's `adaptive` aspect setting replaces Higgsfield's `auto`.
 
 The adapter uses fal's `reference_image_urls`, `reference_video_urls` and `reference_audio_urls` fields. It uploads files with their correct MIME types and downloads the generated video for the unchanged FFmpeg pipeline. Audio extraction failure retains the working branch's behavior: log the issue and continue without the audio reference.
 
@@ -33,7 +33,7 @@ Optional settings:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `FAL_PROMPT` | Original working prompt | Prompt override; existing `HF_PROMPT` is accepted for migration |
-| `FAL_RESOLUTION` | `480P` | `480P`, `768P`, `1080P` |
+| `FAL_RESOLUTION` | `768P` | `480P`, `768P`, `1080P` |
 | `FAL_ASPECT` | `adaptive` | Aspect ratio; existing `HF_ASPECT_RATIO` is accepted |
 | `FAL_VIDEO_REF` | `1` | Set `0` to omit source video; accepts legacy `HF_VIDEO_REF` |
 | `FAL_AUDIO_REF` | `1` | Set `0` to omit audio; accepts legacy `HF_AUDIO_REF` |

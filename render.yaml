@@ -38,7 +38,7 @@ services:
       - key: FAL_MODEL
         value: minimax/h3-max/reference-to-video
       - key: FAL_RESOLUTION
-        value: 480P
+        value: 768P
       - key: FACE_SEGMENTS
         value: 0-10,26-29
 

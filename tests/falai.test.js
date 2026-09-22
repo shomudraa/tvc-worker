@@ -34,7 +34,7 @@ test("working branch prompt and generation settings are preserved", async () => 
   assert.equal(DEFAULT_PROMPT, Function(`return (${expression})`)());
   const input = referenceInput(3, settings({}), { imageUrl: "image", videoUrl: "video", audioUrl: "audio" });
   assert.equal(input.duration, 5);
-  assert.equal(input.resolution, "480P");
+  assert.equal(input.resolution, "768P");
   assert.equal(input.aspect_ratio, "adaptive");
   assert.deepEqual(input.reference_audio_urls, ["audio"]);
   assert.equal(referenceInput(10, settings({}), { imageUrl: "image" }).duration, 10);
@@ -75,7 +75,7 @@ test("adapter uploads correct types, sends audio, downloads, and cleans failed u
     await swapVideo(args);
     assert.deepEqual(uploads.sort(), ["audio/wav", "image/png", "video/mp4"]);
     assert.equal(requests[0].model, "minimax/h3-max/reference-to-video");
-    assert.equal(requests[0].input.resolution, "480P");
+    assert.equal(requests[0].input.resolution, "768P");
     assert.equal(requests[0].input.prompt_expansion_mode, "disabled");
     assert.deepEqual(requests[0].input.reference_image_urls, ["https://example.test/ref/image/png"]);
     assert.deepEqual(requests[0].input.reference_video_urls, ["https://example.test/ref/video/mp4"]);
