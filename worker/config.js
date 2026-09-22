@@ -38,5 +38,7 @@ export const config = {
     vmodel: process.env.VMODEL_API_KEY || "",
     // Higgsfield Open API, as "KEY_ID:KEY_SECRET"
     higgsfield: process.env.HF_KEY || process.env.HF_CREDENTIALS || "",
+    // MiniMax platform, direct rather than via a reseller
+    minimax: process.env.MINIMAX_API_KEY || "",
   },
 };
