@@ -72,7 +72,7 @@ test("adapter uploads correct types, sends audio, downloads, and cleans failed u
     assert.deepEqual(uploads.sort(), ["audio/wav", "image/png", "video/mp4"]);
     assert.equal(requests[0].model, "minimax/h3/reference-to-video");
     assert.equal(requests[0].input.resolution, "2K");
-    assert.equal(requests[0].input.prompt_expansion_mode, "disabled");
+    assert.equal(Object.hasOwn(requests[0].input, "prompt_expansion_mode"), false);
     assert.deepEqual(requests[0].input.reference_image_urls, ["https://example.test/ref/image/png"]);
     assert.deepEqual(requests[0].input.reference_video_urls, ["https://example.test/ref/video/mp4"]);
     assert.equal(requests[0].input.prompt, DEFAULT_PROMPT);

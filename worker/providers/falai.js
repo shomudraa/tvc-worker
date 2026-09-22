@@ -35,7 +35,6 @@ export function referenceInput(seconds, options, { imageUrl, videoUrl, audioUrl 
   }
   const input = {
     prompt: options.prompt,
-    prompt_expansion_mode: "disabled",
     duration: Math.min(15, Math.max(5, Math.ceil(seconds))),
     resolution: options.resolution,
     aspect_ratio: options.aspect_ratio,
