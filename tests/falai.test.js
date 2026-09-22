@@ -32,14 +32,14 @@ test("approved prompt and generation settings are preserved", () => {
   const input = referenceInput(3, settings({}), { imageUrl: "image", videoUrl: "video", audioUrl: "audio" });
   assert.equal(input.prompt, DEFAULT_PROMPT);
   assert.equal(input.duration, 5);
-  assert.equal(input.resolution, "768P");
+  assert.equal(input.resolution, "2K");
   assert.equal(input.aspect_ratio, "adaptive");
   assert.deepEqual(input.reference_audio_urls, ["audio"]);
   assert.equal(referenceInput(10, settings({}), { imageUrl: "image" }).duration, 10);
 });
 test("stale model settings are ignored and unsupported references are rejected", () => {
-  assert.deepEqual(settings({ FAL_MODEL: "minimax/h3/reference-to-video" }), settings({}));
-  assert.throws(() => settings({ FAL_RESOLUTION: "2K" }));
+  assert.deepEqual(settings({ FAL_MODEL: "minimax/h3-max/reference-to-video" }), settings({}));
+  assert.throws(() => settings({ FAL_RESOLUTION: "1080P" }));
   assert.throws(() => referenceInput(16, settings({}), { imageUrl: "image", videoUrl: "video" }), /2–15 seconds/);
   assert.throws(() => referenceInput(10, settings({}), {}), /Selfie reference is required/);
   assert.throws(() => getProvider("higgsfield"));
@@ -61,7 +61,7 @@ test("adapter uploads correct types, sends audio, downloads, and cleans failed u
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "fal-adapter-"));
   const oldKey = process.env.FAL_KEY;
   const oldModel = process.env.FAL_MODEL;
-  process.env.FAL_MODEL = "minimax/h3/reference-to-video";
+  process.env.FAL_MODEL = "minimax/h3-max/reference-to-video";
   process.env.FAL_KEY = "test-only-key";
   mock.method(globalThis, "fetch", async () => new Response("video bytes"));
   try {
@@ -70,8 +70,8 @@ test("adapter uploads correct types, sends audio, downloads, and cleans failed u
     const args = { facePath, videoPath, outPath, start: 26, end: 29 };
     await swapVideo(args);
     assert.deepEqual(uploads.sort(), ["audio/wav", "image/png", "video/mp4"]);
-    assert.equal(requests[0].model, "minimax/h3-max/reference-to-video");
-    assert.equal(requests[0].input.resolution, "768P");
+    assert.equal(requests[0].model, "minimax/h3/reference-to-video");
+    assert.equal(requests[0].input.resolution, "2K");
     assert.equal(requests[0].input.prompt_expansion_mode, "disabled");
     assert.deepEqual(requests[0].input.reference_image_urls, ["https://example.test/ref/image/png"]);
     assert.deepEqual(requests[0].input.reference_video_urls, ["https://example.test/ref/video/mp4"]);
