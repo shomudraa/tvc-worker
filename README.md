@@ -8,21 +8,21 @@ Deploy `main` on the existing Render service using `render.yaml`. Keep the exist
 
 ```
 PROVIDER=falai
-FAL_MODEL=minimax/h3-max/reference-to-video
-FAL_RESOLUTION=480P
+FAL_MODEL=minimax/h3/reference-to-video
+FAL_RESOLUTION=2K
 FACE_SEGMENTS=0-10,26-29
 FAL_KEY=<your fal.ai API key>
 ```
 
 `FAL_KEY` must come from https://fal.ai/dashboard/keys. Higgsfield and MiniMax credentials do not work with fal.ai. Never put the key in frontend code or commit it. Existing Render services must update their environment in the dashboard; editing the blueprint alone does not replace an existing secret. Redeploy after updating the key.
 
-The worker always selects fal.ai even if an old `PROVIDER` value remains in the environment. The model is pinned to MiniMax H3 Max in code; stale `FAL_MODEL` values are ignored. Old provider credentials are unused.
+The worker always selects fal.ai even if an old `PROVIDER` value remains in the environment. The model is pinned to standard MiniMax H3 in code; stale `FAL_MODEL` values are ignored. Old provider credentials are unused.
 
 The screenshot error `No user found for Key ID and Secret` is an authentication failure before generation. Check which deployment and key the failed request used, and retry a non-generation authentication check before rotating a recently working key. Changing the selfie cannot fix authentication.
 
 ## Preserved generation behavior
 
-Each face segment is generated separately with the selfie, source video segment and that window's 16 kHz mono WAV audio. The approved prompt explicitly assigns facial identity to Image 1, scene and performance to Video 1, and speech to Audio 1. It excludes selfie shots and identity transitions. It is pinned in `worker/providers/fal-prompt.js`; stale `FAL_PROMPT` and `HF_PROMPT` values are ignored. Requested durations round up to whole seconds and are clamped to 5–15 seconds, just like the working branch; the three-second tail renders five seconds and is trimmed back. The current comparison uses H3 Max at 480p with its default balanced prompt expansion explicitly selected. fal's `adaptive` aspect setting replaces Higgsfield's `auto`.
+Each face segment is generated separately with the selfie, source video segment and that window's 16 kHz mono WAV audio. The approved prompt explicitly assigns facial identity to Image 1, scene and performance to Video 1, and speech to Audio 1. It excludes selfie shots and identity transitions. It is pinned in `worker/providers/fal-prompt.js`; stale `FAL_PROMPT` and `HF_PROMPT` values are ignored. Requested durations round up to whole seconds and are clamped to 5–15 seconds, just like the working branch; the three-second tail renders five seconds and is trimmed back. The current comparison uses standard H3 at 2K with prompt_expansion_mode omitted, matching the original H3 request behavior. fal's `adaptive` aspect setting replaces Higgsfield's `auto`.
 
 The adapter uses fal's `reference_image_urls`, `reference_video_urls` and `reference_audio_urls` fields. It uploads files with their correct MIME types and downloads the generated video for the unchanged FFmpeg pipeline. Audio extraction failure retains the working branch's behavior: log the issue and continue without the audio reference.
 
@@ -33,7 +33,7 @@ Optional settings:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `FAL_PROMPT` / `HF_PROMPT` | Ignored | The approved prompt is pinned in code for this comparison |
-| `FAL_RESOLUTION` | `480P` | `480P`, `768P`, `1080P` |
+| `FAL_RESOLUTION` | `2K` | `480P`, `768P`, `2K`, `4K` |
 | `FAL_ASPECT` | `adaptive` | Aspect ratio; existing `HF_ASPECT_RATIO` is accepted |
 | `FAL_VIDEO_REF` | `1` | Set `0` to omit source video; accepts legacy `HF_VIDEO_REF` |
 | `FAL_AUDIO_REF` | `1` | Set `0` to omit audio; accepts legacy `HF_AUDIO_REF` |
@@ -46,7 +46,7 @@ Install Node.js 22+, FFmpeg and dependencies with `npm install`. Configure `.env
 
 The worker serves the frontend and API together. Keep `web/config.js`'s `WORKER_URL` empty unless hosting the frontend separately. `/health` reports the selected provider. Finished videos live in `/app/outputs` on the Render disk and expire after the configured retention period.
 
-Model schema: https://fal.ai/models/minimax/h3-max/reference-to-video/api
+Model schema: https://fal.ai/models/minimax/h3/reference-to-video/api
 
 ## Queue isolation
 
