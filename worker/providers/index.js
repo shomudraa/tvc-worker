@@ -8,13 +8,14 @@ import * as falai from "./falai.js";
 import * as google from "./google.js";
 import * as vertex from "./vertex.js";
 import * as higgsfield from "./higgsfield.js";
+import * as minimax from "./minimax.js";
 
 /**
  * Every provider exports:
  *   swapVideo({ videoPath, facePath, outPath, log }) -> Promise<outPath>
  * It must download the finished swapped video to outPath.
  */
-const providers = { mock, magichour, vmodel, akool, charreplace, falai, google, vertex, higgsfield };
+const providers = { mock, magichour, vmodel, akool, charreplace, falai, google, vertex, higgsfield, minimax };
 
 export function getProvider(name = config.provider) {
   const p = providers[name];
