@@ -4,8 +4,10 @@ import { config } from "../worker/config.js";
 import { prepareSegments, runSwapJob } from "../worker/pipeline.js";
 import { duration, ffmpeg } from "../worker/ffmpeg.js";
 
-const provider = process.env.PROVIDER || "mock";
+const provider = config.provider;
 const face = process.env.FACE || null;
+
+if (!face) throw new Error("Set FACE to a test selfie; this test makes paid fal.ai requests.");
 
 await prepareSegments();
 

@@ -78,7 +78,7 @@ const ERRORS = {
   rate_limited: "You've made a few already. Try again in an hour.",
   daily_cap: "Today's films are all made. Come back tomorrow.",
   paused: "We're taking a short break. Back soon.",
-  failed: "The film couldn't be made from that photo. Try another one with clearer light.",
+  failed: "The film couldn't be made. Please try again later.",
   server_error: "Something broke on our side. Try again in a moment.",
   network: "Lost connection. Check your signal and try again.",
 };

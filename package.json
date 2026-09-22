@@ -7,7 +7,8 @@
     "dev": "node worker/server.js",
     "worker": "QUEUE=redis node worker/server.js",
     "test:pipeline": "node scripts/test-pipeline.js",
-    "prepare:segments": "node scripts/prepare-segments.js"
+    "prepare:segments": "node scripts/prepare-segments.js",
+    "test": "node --experimental-test-module-mocks --test tests/*.test.js"
   },
   "dependencies": {
     "@fal-ai/client": "^1.10.1",

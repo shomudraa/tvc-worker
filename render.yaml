@@ -20,6 +20,7 @@ services:
     region: singapore
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
+    branch: main
     autoDeploy: true
 
     disk:
@@ -33,15 +34,19 @@ services:
       - key: PORT
         value: 4000
       - key: PROVIDER
-        value: higgsfield
+        value: falai
+      - key: FAL_MODEL
+        value: minimax/h3/reference-to-video
+      - key: FAL_RESOLUTION
+        value: 2K
       - key: FACE_SEGMENTS
         value: 0-10,26-29
 
       # Upstash Redis connection string
       - key: REDIS_URL
         sync: false
-      # Higgsfield Open API, as KEY_ID:KEY_SECRET
-      - key: HF_KEY
+      # fal.ai API key (not a Higgsfield or MiniMax key)
+      - key: FAL_KEY
         sync: false
       # Kill switch token for POST /admin/pause
       - key: ADMIN_TOKEN

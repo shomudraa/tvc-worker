@@ -20,7 +20,7 @@ function parseSegments(str) {
 const root = path.resolve(process.cwd());
 
 export const config = {
-  provider: process.env.PROVIDER || "mock",
+  provider: "falai",
   masterVideo: path.resolve(root, process.env.MASTER_VIDEO || "./assets/master.mp4"),
   segmentsDir: path.resolve(root, "./assets/segments"),
   tmpDir: path.resolve(root, "./tmp"),
@@ -32,11 +32,4 @@ export const config = {
   maxJobsPerDay: Number(process.env.MAX_JOBS_PER_DAY || 5000),
   maxJobsPerIpPerHour: Number(process.env.MAX_JOBS_PER_IP_PER_HOUR || 3),
   retentionHours: Number(process.env.RETENTION_HOURS || 24),
-  keys: {
-    magichour: process.env.MAGIC_HOUR_API_KEY || "",
-    akool: process.env.AKOOL_API_KEY || "",
-    vmodel: process.env.VMODEL_API_KEY || "",
-    // Higgsfield Open API, as "KEY_ID:KEY_SECRET"
-    higgsfield: process.env.HF_KEY || process.env.HF_CREDENTIALS || "",
-  },
 };

@@ -1,0 +1,83 @@
+import test, { mock } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+let uploads = [], requests = [], rejectUpload = false;
+mock.module("../worker/ffmpeg.js", { namedExports: {
+  duration: async () => 3,
+  ffmpeg: async (args) => fs.writeFile(args.at(-1), "wav bytes"),
+} });
+mock.module("@fal-ai/client", { namedExports: {
+  createFalClient: ({ credentials }) => {
+    assert.equal(credentials, "test-only-key");
+    return {
+      storage: { upload: async (blob) => {
+        uploads.push(blob.type);
+        if (rejectUpload) throw new Error("No user found for Key ID and Secret");
+        return `https://example.test/ref/${blob.type}`;
+      } },
+      subscribe: async (model, options) => {
+        requests.push({ model, input: options.input });
+        return { data: { video: { url: "https://example.test/output.mp4" } } };
+      },
+    };
+  },
+} });
+const { settings, referenceInput, falError, swapVideo, MODEL, DEFAULT_PROMPT } = await import("../worker/providers/falai.js");
+const { getProvider } = await import("../worker/providers/index.js");
+
+test("working branch prompt and generation settings are preserved", async () => {
+  const original = await fs.readFile(new URL("../worker/providers/higgsfield.js", import.meta.url), "utf8");
+  const expression = original.match(/const DEFAULT_PROMPT =([\s\S]*?);/)[1];
+  assert.equal(DEFAULT_PROMPT, Function(`return (${expression})`)());
+  const input = referenceInput(3, settings({}), { imageUrl: "image", videoUrl: "video", audioUrl: "audio" });
+  assert.equal(input.duration, 5);
+  assert.equal(input.resolution, "2K");
+  assert.equal(input.aspect_ratio, "adaptive");
+  assert.deepEqual(input.reference_audio_urls, ["audio"]);
+  assert.equal(referenceInput(10, settings({}), { imageUrl: "image" }).duration, 10);
+});
+test("model switches and unsupported video references are rejected", () => {
+  assert.throws(() => settings({ FAL_MODEL: "minimax/h3-max/reference-to-video" }));
+  assert.throws(() => settings({ FAL_RESOLUTION: "1080P" }));
+  assert.throws(() => referenceInput(16, settings({}), { videoUrl: "video" }));
+  assert.throws(() => getProvider("higgsfield"));
+  assert.equal(getProvider().swapVideo, swapVideo);
+});
+test("legacy prompt and aspect settings survive migration", () => {
+  const options = settings({ HF_PROMPT: "custom", HF_ASPECT_RATIO: "auto", HF_AUDIO_REF: "0" });
+  assert.equal(options.prompt, "custom");
+  assert.equal(options.aspect_ratio, "adaptive");
+  assert.equal(options.audioRef, false);
+});
+test("authentication failures identify the server key", () => {
+  assert.match(falError(new Error("No user found for Key ID and Secret")), /Update FAL_KEY/);
+  assert.match(falError({ status: 401 }), /authentication failed/);
+});
+test("adapter uploads correct types, sends audio, downloads, and cleans failed uploads", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "fal-adapter-"));
+  const oldKey = process.env.FAL_KEY;
+  process.env.FAL_KEY = "test-only-key";
+  mock.method(globalThis, "fetch", async () => new Response("video bytes"));
+  try {
+    const facePath = path.join(dir, "face.png"), videoPath = path.join(dir, "segment.mp4"), outPath = path.join(dir, "output.mp4");
+    await fs.writeFile(facePath, "png bytes"); await fs.writeFile(videoPath, "mp4 bytes");
+    const args = { facePath, videoPath, outPath, start: 26, end: 29 };
+    await swapVideo(args);
+    assert.deepEqual(uploads.sort(), ["audio/wav", "image/png", "video/mp4"]);
+    assert.equal(requests[0].model, MODEL);
+    assert.equal(requests[0].input.duration, 5);
+    assert.equal(requests[0].input.reference_audio_urls.length, 1);
+    assert.equal(await fs.readFile(outPath, "utf8"), "video bytes");
+    assert.equal((await fs.readdir(dir)).some(x => x.endsWith(".wav")), false);
+    rejectUpload = true;
+    await assert.rejects(swapVideo(args), /Update FAL_KEY/);
+    assert.equal(requests.length, 1);
+    assert.equal((await fs.readdir(dir)).some(x => x.endsWith(".wav")), false);
+  } finally {
+    if (oldKey === undefined) delete process.env.FAL_KEY; else process.env.FAL_KEY = oldKey;
+    mock.restoreAll(); await fs.rm(dir, { recursive: true, force: true });
+  }
+});

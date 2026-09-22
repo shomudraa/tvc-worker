@@ -1,203 +1,123 @@
 import fs from "node:fs/promises";
-import { duration } from "../ffmpeg.js";
+import path from "node:path";
+import { config } from "../config.js";
+import { duration, ffmpeg } from "../ffmpeg.js";
 
-const DEFAULT_MODEL =
-  "fal-ai/kling-video/o3/pro/video-to-video/edit";
+export const MODEL = "minimax/h3/reference-to-video";
+// Preserve the working Higgsfield branch's prompt word for word.
+export const DEFAULT_PROMPT =
+  "Recreate the reference video shot for shot. Keep the same location, lighting, " +
+  "wardrobe, framing and camera movement. The person in the reference photo is the " +
+  "performer on screen, with their face and likeness, performing the same actions " +
+  "with the same timing. The performer speaks the reference audio: mouth shapes, jaw " +
+  "and tongue follow every syllable of that voice track, starting and stopping exactly " +
+  "with it, closed lips through the silences. Photorealistic, broadcast commercial " +
+  "quality, no captions, no on screen text, no logos.";
 
-const DEFAULT_PROMPTS = {
-  "video-edit":
-    "Replace the face of the person in @Video1 with the face from @Image1. " +
-    "Preserve the original movements, camera angles, clothing, background and lighting.",
-
-  "motion-control":
-    "A person speaking to camera outdoors, natural daylight, photoreal",
-
-  "reference-to-video":
-    "The person from [Image1] replaces the person in [Video1]. " +
-    "Keep the scene, camera movement, framing, lighting and wardrobe of [Video1]. " +
-    "Keep the face from [Image1] exact and photoreal.",
-};
-
-function shapeFor(model) {
-  if (
-    model.startsWith("fal-ai/kling-video/") &&
-    model.endsWith("/video-to-video/edit")
-  ) {
-    return "video-edit";
+export function settings(env = process.env) {
+  if (env.FAL_MODEL && env.FAL_MODEL.trim() !== MODEL) {
+    throw new Error(`FAL_MODEL must be ${MODEL}; this version preserves MiniMax H3.`);
   }
-
-  if (
-    model.startsWith("fal-ai/kling-video/") &&
-    model.endsWith("/motion-control")
-  ) {
-    return "motion-control";
+  const resolution = (env.FAL_RESOLUTION || "2K").trim().toUpperCase();
+  if (!["480P", "768P", "2K", "4K"].includes(resolution)) {
+    throw new Error("Invalid FAL_RESOLUTION. Use 480P, 768P, 2K or 4K.");
   }
-
-  if (
-    model.startsWith("bytedance/seedance-") &&
-    model.endsWith("/reference-to-video")
-  ) {
-    return "reference-to-video";
+  const aspect = (env.FAL_ASPECT || env.HF_ASPECT_RATIO || "adaptive").trim();
+  const aspectRatio = aspect === "auto" ? "adaptive" : aspect;
+  if (!["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"].includes(aspectRatio)) {
+    throw new Error("Invalid FAL_ASPECT.");
   }
-
-  throw new Error(
-    "Unsupported FAL_MODEL for this adapter. Use " +
-      DEFAULT_MODEL +
-      " for editing the original video."
-  );
+  return {
+    prompt: (env.FAL_PROMPT || env.HF_PROMPT || "").trim() || DEFAULT_PROMPT,
+    resolution, aspect_ratio: aspectRatio,
+    videoRef: (env.FAL_VIDEO_REF ?? env.HF_VIDEO_REF) !== "0",
+    audioRef: (env.FAL_AUDIO_REF ?? env.HF_AUDIO_REF) !== "0",
+  };
 }
 
-let configured = false;
-
-async function getFal() {
-  const { fal } = await import("@fal-ai/client");
-
-  if (!configured) {
-    const key = (process.env.FAL_KEY || "").trim();
-
-    if (!key) {
-      throw new Error("FAL_KEY missing");
-    }
-
-    fal.config({ credentials: key });
-    configured = true;
+export function referenceInput(seconds, options, { imageUrl, videoUrl, audioUrl }) {
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error("Invalid segment duration.");
+  if (videoUrl && (seconds < 2 || seconds > 15)) {
+    throw new Error("fal reference video must be 2–15 seconds. Check FACE_SEGMENTS.");
   }
-
-  return fal;
+  const input = {
+    prompt: options.prompt,
+    duration: Math.min(15, Math.max(5, Math.ceil(seconds))),
+    resolution: options.resolution,
+    aspect_ratio: options.aspect_ratio,
+    reference_image_urls: [imageUrl],
+  };
+  if (videoUrl) input.reference_video_urls = [videoUrl];
+  if (audioUrl) input.reference_audio_urls = [audioUrl];
+  return input;
 }
 
-async function uploadLocal(fal, localPath, mime) {
-  const buffer = await fs.readFile(localPath);
-  return fal.storage.upload(new Blob([buffer], { type: mime }));
+export function falError(error) {
+  const detail = error?.body?.detail;
+  const message = typeof detail === "string" ? detail : error?.message || "Unknown error";
+  if (error?.status === 401 || error?.status === 403 || /No user found for Key ID and Secret|unauthorized|invalid.{0,15}(key|credential)/i.test(message)) {
+    return "fal authentication failed. Update FAL_KEY in the worker environment with a valid fal.ai API key, then redeploy. A Higgsfield or MiniMax key cannot authenticate with fal.ai.";
+  }
+  return message;
 }
 
-export async function swapVideo({
-  videoPath,
-  facePath,
-  outPath,
-  log = () => {},
-}) {
-  const model = (process.env.FAL_MODEL || DEFAULT_MODEL).trim();
-  const shape = shapeFor(model);
-  const fal = await getFal();
+const MIME = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".mp4": "video/mp4", ".wav": "audio/wav" };
+async function uploadLocal(fal, filePath) {
+  const type = MIME[path.extname(filePath).toLowerCase()];
+  if (!type) throw new Error("Unsupported reference file type.");
+  return fal.storage.upload(new Blob([await fs.readFile(filePath)], { type }));
+}
 
-  const prompt =
-    (process.env.FAL_PROMPT || "").trim() ||
-    DEFAULT_PROMPTS[shape];
-
+export async function swapVideo({ videoPath, facePath, outPath, start, end, log = () => {} }) {
+  const options = settings();
+  const key = (process.env.FAL_KEY || "").trim();
+  if (!key) throw new Error("FAL_KEY missing. Set a fal.ai API key in the worker environment.");
+  const { createFalClient } = await import("@fal-ai/client");
+  const fal = createFalClient({ credentials: key });
   const seconds = await duration(videoPath);
-
-  if (
-    shape === "video-edit" &&
-    (seconds < 3 || seconds > 15)
-  ) {
-    throw new Error(
-      `Kling video editing requires a 3–15 second input clip; ` +
-        `received ${seconds.toFixed(2)} seconds.`
-    );
-  }
-
-  log(`falai: uploading ${seconds.toFixed(2)}s segment + selfie`);
-
-  let videoUrl;
-  let imageUrl;
-
+  // Validate before uploading any references.
+  referenceInput(seconds, options, { imageUrl: "pending", videoUrl: options.videoRef ? "pending" : null });
+  let audioPath = null;
   try {
-    [videoUrl, imageUrl] = await Promise.all([
-      uploadLocal(fal, videoPath, "video/mp4"),
-      uploadLocal(fal, facePath, "image/png"),
+    if (options.audioRef && Number.isFinite(start) && Number.isFinite(end)) {
+      audioPath = path.join(path.dirname(outPath), `refaudio_${start}_${end}.wav`);
+      try {
+        await ffmpeg(["-ss", String(start), "-to", String(end), "-i", config.masterVideo,
+          "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-y", audioPath]);
+      } catch (error) {
+        log(`falai: no usable audio for ${start}-${end}s, sending without it`);
+        await fs.rm(audioPath, { force: true });
+        audioPath = null;
+      }
+    }
+    log("falai: uploading references");
+    // Await every upload before cleanup, including when an upload fails.
+    const uploads = await Promise.allSettled([
+      uploadLocal(fal, facePath),
+      options.videoRef ? uploadLocal(fal, videoPath) : null,
+      audioPath ? uploadLocal(fal, audioPath) : null,
     ]);
-  } catch (error) {
-    throw new Error(
-      `fal upload failed: ${error.message || "Unknown error"}`,
-      { cause: error }
-    );
+    const failed = uploads.find((result) => result.status === "rejected");
+    if (failed) throw new Error(`fal upload failed: ${falError(failed.reason)}`, { cause: failed.reason });
+    const [imageUrl, videoUrl, audioUrl] = uploads.map((result) => result.value);
+    const input = referenceInput(seconds, options, { imageUrl, videoUrl, audioUrl });
+    log(`falai: ${MODEL}, ${input.duration}s at ${input.resolution}`);
+    let result;
+    try {
+      result = await fal.subscribe(MODEL, {
+        input, logs: true,
+        onQueueUpdate: (update) => { if (update.status) log(`falai: ${update.status}`); },
+      });
+    } catch (error) {
+      throw new Error(`fal generation failed: ${falError(error)}`, { cause: error });
+    }
+    const url = result?.data?.video?.url;
+    if (!url) throw new Error("fal returned no video URL.");
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`fal download failed: HTTP ${response.status}`);
+    await fs.writeFile(outPath, Buffer.from(await response.arrayBuffer()));
+    return outPath;
+  } finally {
+    if (audioPath) await fs.rm(audioPath, { force: true });
   }
-
-  let input;
-
-  if (shape === "video-edit") {
-    // A single selfie is an image reference.
-    // The prompt must refer to it as @Image1, not @Element1.
-    input = {
-      prompt,
-      video_url: videoUrl,
-      image_urls: [imageUrl],
-    };
-  } else if (shape === "motion-control") {
-    input = {
-      prompt,
-      image_url: imageUrl,
-      video_url: videoUrl,
-      character_orientation:
-        process.env.FAL_ORIENTATION || "video",
-    };
-  } else {
-    // This input shape is for Seedance, not Kling.
-    input = {
-      prompt,
-      image_urls: [imageUrl],
-      video_urls: [videoUrl],
-      duration: String(
-        Math.max(4, Math.min(15, Math.round(seconds)))
-      ),
-      resolution: process.env.FAL_RESOLUTION || "480p",
-      aspect_ratio: process.env.FAL_ASPECT || "16:9",
-      generate_audio: process.env.FAL_AUDIO === "true",
-    };
-  }
-
-  log(`falai: ${model} (${shape})`);
-
-  let result;
-
-  try {
-    result = await fal.subscribe(model, {
-      input,
-      logs: true,
-      onQueueUpdate: (update) => {
-        if (
-          update.status === "IN_PROGRESS" &&
-          update.logs?.length
-        ) {
-          log(
-            `falai: ${
-              update.logs[update.logs.length - 1].message
-            }`
-          );
-        } else if (update.status) {
-          log(`falai: ${update.status}`);
-        }
-      },
-    });
-  } catch (error) {
-    throw new Error(
-      `fal generation failed: ${error.message || "Unknown error"}`,
-      { cause: error }
-    );
-  }
-
-  const data = result?.data ?? result;
-  const url = data?.video?.url;
-
-  if (!url) {
-    throw new Error("fal returned no video URL");
-  }
-
-  log("falai: downloading result");
-
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(
-      `fal download failed: HTTP ${response.status}`
-    );
-  }
-
-  await fs.writeFile(
-    outPath,
-    Buffer.from(await response.arrayBuffer())
-  );
-
-  return outPath;
 }
