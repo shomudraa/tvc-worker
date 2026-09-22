@@ -40,12 +40,12 @@ import { duration, ffmpeg } from "../ffmpeg.js";
  *                        plain H3  480P, 768P, 2K, 4K
  *                        H3 Max    480P, 768P, 1080P
  *   FAL_ASPECT           default adaptive on h3, 16:9 on seedance
- *   FAL_EXPANSION        balanced (default), disabled, fast or quality.
- *                        Higgsfield never set this, so MiniMax's own expansion
- *                        was on for the runs where the scene held. Expansion
- *                        fills in scene detail and helps the video reference
- *                        win over the photo. Set it to disabled only when
- *                        testing exact prompt wording
+ *   FAL_EXPANSION        disabled (default), balanced, fast or quality.
+ *                        balanced and above let MiniMax rewrite the prompt
+ *                        before generating, and a rewritten prompt is where
+ *                        invented faces come from. disabled sends our words
+ *                        exactly as written. If the scene ever stops holding,
+ *                        set this to balanced to get the old behaviour back
  *   FAL_AUDIO_REF        1 (default) sends the window's audio for lip sync
  *   FAL_SEED             fixed seed for repeatable tests
  */
@@ -66,6 +66,10 @@ const DEFAULT_PROMPTS = {
   //
   // Its one known weakness is that the performer sometimes walks. Fix that with
   // a single added sentence and test it on its own. Do not restructure this.
+  //
+  // The identity block at the end was added after a run where the scene held
+  // perfectly but the model invented facial hair and a different jawline. It
+  // only adds constraints; it does not change the opening.
   "h3-reference":
     "Recreate the reference video shot for shot. Keep the same location, lighting, " +
     "wardrobe, framing and camera movement. The person in the reference photo is the " +
@@ -73,7 +77,16 @@ const DEFAULT_PROMPTS = {
     "with the same timing. The performer speaks the reference audio: mouth shapes, jaw " +
     "and tongue follow every syllable of that voice track, starting and stopping exactly " +
     "with it, closed lips through the silences. Photorealistic, broadcast commercial " +
-    "quality, no captions, no on screen text, no logos.",
+    "quality, no captions, no on screen text, no logos. " +
+    "Identity is copied exactly from the reference photo and nothing about the face is " +
+    "invented. Same face shape, same jawline, same cheekbones, same nose shape and width, " +
+    "same eye shape and spacing, same eyebrow shape and thickness, same lip shape, same " +
+    "hairline, same hair style and length, same skin tone. Facial hair is exactly as it " +
+    "appears in the reference photo: same beard shape, same beard length, same moustache, " +
+    "same patch under the lower lip, nothing added, nothing thickened, nothing extended " +
+    "along the jaw. No new features. No idealising. No slimming, no widening, no age " +
+    "change, no beauty retouching. If a detail is unclear in the reference photo, " +
+    "reproduce it as it appears rather than inventing a replacement.",
 
   "video-edit":
     "Replace the face of the person in @Video1 with the face from @Image1. " +
@@ -271,10 +284,10 @@ export async function swapVideo({ videoPath, facePath, outPath, start, end, log 
 
     input = {
       prompt,
-      // Matches the Higgsfield setup, where this was left at MiniMax's own
-      // default. Expansion adds scene detail and keeps the video reference
-      // from being overpowered by the selfie.
-      prompt_expansion_mode: process.env.FAL_EXPANSION || "balanced",
+      // Our prompt goes through exactly as written. Expansion lets MiniMax
+      // rewrite it first, and a rewritten prompt is where invented facial
+      // features came from. FAL_EXPANSION=balanced restores the old behaviour.
+      prompt_expansion_mode: process.env.FAL_EXPANSION || "disabled",
       reference_image_urls: [imageUrl],
       reference_video_urls: [videoUrl],
       duration: want,
