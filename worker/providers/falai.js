@@ -34,13 +34,23 @@ export function settings(env = process.env) {
 }
 
 export function referenceInput(seconds, options, { imageUrl, videoUrl, audioUrl }) {
+  if (!imageUrl) throw new Error("Selfie reference is required.");
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error("Invalid segment duration.");
   if (videoUrl && (seconds < 2 || seconds > 15)) {
     throw new Error("fal reference video must be 2–15 seconds. Check FACE_SEGMENTS.");
   }
   const input = {
-    prompt: options.prompt,
-    prompt_expansion_mode: "balanced",
+    prompt: [
+      "Identity replacement: Image 1 is the selfie and the sole reference for the on-screen performer's identity. " +
+      "Use the face, facial proportions, skin tone and hair from Image 1 consistently throughout the clip.",
+      videoUrl ? "Video 1 supplies the scene, wardrobe, framing, camera movement, body actions and timing only. " +
+        "Replace the main performer's face with the person from Image 1. Do not retain or blend in the original performer's facial identity from Video 1." : "",
+      audioUrl ? "Audio 1 supplies the speech and lip-sync timing." : "",
+      "Additional scene directions (the identity assignment above takes precedence):",
+      options.prompt,
+      "The final on-screen face must depict the person in Image 1.",
+    ].filter(Boolean).join("\n\n"),
+    prompt_expansion_mode: "disabled",
     duration: Math.min(15, Math.max(5, Math.ceil(seconds))),
     resolution: options.resolution,
     aspect_ratio: options.aspect_ratio,
