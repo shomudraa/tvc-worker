@@ -47,3 +47,7 @@ Install Node.js 22+, FFmpeg and dependencies with `npm install`. Configure `.env
 The worker serves the frontend and API together. Keep `web/config.js`'s `WORKER_URL` empty unless hosting the frontend separately. `/health` reports the selected provider. Finished videos live in `/app/outputs` on the Render disk and expire after the configured retention period.
 
 Model schema: https://fal.ai/models/minimax/h3/reference-to-video/api
+
+## Queue isolation
+
+Redis queues are scoped by Render service ID (`tvc-v3-<service-id>-falai`). Local containers use a separate local queue. This prevents an unrelated container with different credentials or video segments from consuming production jobs when Redis is shared. Previous failed jobs remain in the legacy queue; refresh the page to submit a new job after migration.

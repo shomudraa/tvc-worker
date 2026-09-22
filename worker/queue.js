@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { config } from "./config.js";
+import { queueNameFor } from "./queue-name.js";
 import { runSwapJob } from "./pipeline.js";
 import { sendReadyEmail } from "./notify.js";
 
@@ -85,8 +86,8 @@ async function redisQueue() {
   const { Queue, Worker } = await import("bullmq");
   const IORedis = (await import("ioredis")).default;
   const redis = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
-  // Never share the legacy "swap" queue with old deployments or other providers.
-  const queueName = `tvc-v2-${config.provider}`;
+  // A local or unrelated worker must never consume this service's jobs.
+  const queueName = queueNameFor(config.provider);
   const queue = new Queue(queueName, { connection: redis });
   console.log(`queue=${queueName} worker=${os.hostname()} provider=${config.provider}`);
 
