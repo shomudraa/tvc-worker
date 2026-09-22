@@ -8,14 +8,25 @@ import { duration, ffmpeg } from "../ffmpeg.js";
  *
  * Four request shapes are supported, picked from FAL_MODEL:
  *
- *   h3-reference        minimax/h3-max/reference-to-video   (and plain h3)
+ *   h3-reference        minimax/h3/reference-to-video        (default)
+ *                       minimax/h3-max/reference-to-video
  *                       The one we use. Takes the selfie, the original segment
  *                       and that window's audio as three separate reference
  *                       lists, so the model has the scene, the face and the
- *                       voice. Same model and same price as MiniMax's own API
- *                       ($0.05 / $0.08 / $0.16 per second at 480P / 768P /
- *                       1080P) and fal adds the 1080P tier that MiniMax direct
- *                       does not offer for H3 Max.
+ *                       voice.
+ *
+ *                       Plain H3 is the default because it is far cheaper here.
+ *                       fal bills plain H3 as output only: $0.05 / $0.06 /
+ *                       $0.13 / $0.16 per second at 480P / 768P / 2K / 4K,
+ *                       with the first 5 reference images free and no charge
+ *                       listed for reference video or audio.
+ *
+ *                       H3 Max is billed differently: output at $0.05 / $0.08 /
+ *                       $0.16 per second at 480P / 768P / 1080P PLUS reference
+ *                       tokens beyond a 4,096 allowance at $0.02 per 1,000.
+ *                       A 10 second reference clip alone adds about $1.27 at
+ *                       768P, which is why a measured 10s H3 Max run cost
+ *                       $2.11 against about $0.60 for plain H3.
  *
  *   video-edit          fal-ai/kling-video/.../video-to-video/edit
  *   motion-control      fal-ai/kling-video/.../motion-control
@@ -23,9 +34,11 @@ import { duration, ffmpeg } from "../ffmpeg.js";
  *
  * Env:
  *   FAL_KEY              fal credentials
- *   FAL_MODEL            default minimax/h3-max/reference-to-video
+ *   FAL_MODEL            default minimax/h3/reference-to-video
  *   FAL_PROMPT           overrides the shape's default prompt
- *   FAL_RESOLUTION       480P, 768P (default) or 1080P on the h3 shapes
+ *   FAL_RESOLUTION       768P by default. Allowed values differ per model:
+ *                        plain H3  480P, 768P, 2K, 4K
+ *                        H3 Max    480P, 768P, 1080P
  *   FAL_ASPECT           default adaptive on h3, 16:9 on seedance
  *   FAL_EXPANSION        disabled (default), balanced or quality. Leave it on
  *                        disabled: the other two let fal rewrite the prompt,
@@ -35,17 +48,33 @@ import { duration, ffmpeg } from "../ffmpeg.js";
  *   FAL_SEED             fixed seed for repeatable tests
  */
 
-const DEFAULT_MODEL = "minimax/h3-max/reference-to-video";
+const DEFAULT_MODEL = "minimax/h3/reference-to-video";
 
 const DEFAULT_PROMPTS = {
+  // Identity first, scene second. fal's own example names what each reference
+  // IS before describing the shot. An earlier version opened with "reproduce
+  // Video 1 exactly" and the model did precisely that: it returned the
+  // reference clip with no swap at all.
   "h3-reference":
-    "Recreate Video 1 shot for shot. Keep the same location, lighting, wardrobe, " +
-    "framing and camera movement as Video 1. The person in Image 1 is the performer " +
-    "on screen, with their face and likeness. The performer is stationary: both feet " +
-    "stay planted on the ground, no walking and no stepping, only the head, face, eyes " +
-    "and hands move. The performer speaks Audio 1, with mouth shapes following every " +
-    "syllable of that voice and closed lips through the silences. Photorealistic, " +
-    "broadcast commercial quality, no captions, no on screen text, no logos.",
+    "Image 1 is the person. Video 1 shows the scene, the framing, the camera move " +
+    "and the body motion. Audio 1 is the speech. " +
+    "Generate the scene of Video 1 performed by the person from Image 1. The person " +
+    "on screen has the face, skin tone, facial structure, hairline and hair of Image 1, " +
+    "held consistent in every frame with no drift and no morphing. Natural skin with " +
+    "visible pores and fine texture, realistic subsurface scattering, catchlights in " +
+    "both eyes, no waxy or plastic skin, no beauty smoothing. " +
+    "The person stands in the same spot as in Video 1, wears the same clothing, and is " +
+    "lit the same way, with the same key, fill and rim placement, the same colour " +
+    "temperature and the same contrast. The background, the props and the depth of field " +
+    "match Video 1. " +
+    "The person stays planted in one place for the whole shot. No walking, no stepping, " +
+    "no pacing, no change of standing position. Only the head, face, eyes and hands move, " +
+    "following the motion in Video 1. " +
+    "The person speaks Audio 1, with lips and jaw following every syllable and closing " +
+    "fully through the silences. " +
+    "Photorealistic live action, broadcast television commercial quality, clean and noise " +
+    "free, natural motion blur, no captions, no subtitles, no on screen text, no " +
+    "watermark, no logo.",
 
   "video-edit":
     "Replace the face of the person in @Video1 with the face from @Image1. " +
@@ -60,13 +89,20 @@ const DEFAULT_PROMPTS = {
     "Keep the face from [Image1] exact and photoreal.",
 };
 
-// H3 and H3 Max on fal, both reference-to-video.
+// H3 and H3 Max on fal, both reference-to-video. The resolution lists differ:
+// plain H3 goes up to 4K and has no 1080P tier, H3 Max tops out at 1080P.
 const H3_LIMITS = {
-  "minimax/h3-max/reference-to-video": { min: 5, max: 15 },
-  "minimax/h3/reference-to-video": { min: 4, max: 15 },
+  "minimax/h3/reference-to-video": {
+    min: 4,
+    max: 15,
+    resolutions: ["480P", "768P", "2K", "4K"],
+  },
+  "minimax/h3-max/reference-to-video": {
+    min: 5,
+    max: 15,
+    resolutions: ["480P", "768P", "1080P"],
+  },
 };
-
-const H3_RESOLUTIONS = ["480P", "768P", "1080P"];
 
 function shapeFor(model) {
   if (H3_LIMITS[model]) return "h3-reference";
@@ -84,7 +120,7 @@ function shapeFor(model) {
   }
 
   throw new Error(
-    `Unsupported FAL_MODEL "${model}". Use ${DEFAULT_MODEL} for H3 Max, or one of: ` +
+    `Unsupported FAL_MODEL "${model}". Use ${DEFAULT_MODEL}, or one of: ` +
       Object.keys(H3_LIMITS).join(", ") +
       ", fal-ai/kling-video/*/video-to-video/edit, fal-ai/kling-video/*/motion-control, " +
       "bytedance/seedance-*/reference-to-video."
@@ -211,8 +247,10 @@ export async function swapVideo({ videoPath, facePath, outPath, start, end, log 
     const want = Math.min(limits.max, Math.max(limits.min, Math.ceil(seconds)));
 
     const resolution = (process.env.FAL_RESOLUTION || "768P").toUpperCase();
-    if (!H3_RESOLUTIONS.includes(resolution)) {
-      throw new Error(`FAL_RESOLUTION must be one of ${H3_RESOLUTIONS.join(", ")}, not ${resolution}`);
+    if (!limits.resolutions.includes(resolution)) {
+      throw new Error(
+        `${model} supports ${limits.resolutions.join(", ")}, not ${resolution}. Fix FAL_RESOLUTION.`
+      );
     }
 
     // Audio reference: without it the model invents mouth movement.
