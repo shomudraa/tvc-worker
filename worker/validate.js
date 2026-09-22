@@ -15,37 +15,23 @@ const run = promisify(execFile);
  *     c) AWS Rekognition DetectFaces + DetectModerationLabels + RecognizeCelebrities
  *   Return {ok:false, reason:"no_face"|"multiple_faces"|"not_a_photo"|"moderation"} as needed.
  *
- * WHY THE SELFIE IS KEPT LARGE
- * ----------------------------
- * This file used to shrink every upload to 1024px at JPEG quality 4, which
- * landed around 200 kB. That starved the generation model of facial detail, and
- * it filled the gaps by inventing features: a thicker beard, a different jaw.
- * The reference photo is the only thing telling the model what the person looks
- * like, so detail here is identity accuracy in the output.
+ * DO NOT RAISE THE SIZE WITHOUT TESTING IT ALONE.
+ * ------------------------------------------------
+ * These exact settings (1024px, JPEG quality 4, about 200 kB) are what was in
+ * place on the run where the swap worked and the scene held. Raising them to
+ * 1920px near lossless was tried, to give the model more facial detail, and the
+ * very next run came back with no swap at all: the original actor's face, the
+ * visitor's selfie ignored. That was the only change in the build, so the size
+ * is the suspect. It is back at the known good values here.
  *
- * The size still matters because the image travels as base64 inside the queued
- * Redis job, and base64 adds about a third. Upstash caps a request at 10 MB on
- * both the free and pay as you go plans, so a 4 MB image (about 5.4 MB encoded)
- * leaves comfortable headroom. If ffmpeg lands above that, the steps below
- * re-encode smaller rather than rejecting a photo the visitor took in good
- * faith.
+ * If you want to try a larger selfie again, change ONE step at a time (1280px
+ * first), run a job, and revert immediately if the swap stops happening.
  */
 const MAGIC = {
   jpg: [0xff, 0xd8, 0xff],
   png: [0x89, 0x50, 0x4e, 0x47],
   webp: [0x52, 0x49, 0x46, 0x46],
 };
-
-// Each step is tried in order until one lands under MAX_BYTES.
-// q:v 2 is close to lossless, q:v 4 is still good, 31 is the worst allowed.
-const ENCODE_STEPS = [
-  { width: 1920, quality: 2 },
-  { width: 1920, quality: 4 },
-  { width: 1280, quality: 4 },
-  { width: 1024, quality: 6 },
-];
-
-const MAX_BYTES = 4_000_000;
 
 function sniff(buf) {
   for (const [k, sig] of Object.entries(MAGIC)) {
@@ -61,36 +47,18 @@ export async function validateSelfie(buf) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "selfie-"));
   const inp = path.join(dir, `in.${type}`);
   const out = path.join(dir, "out.jpg");
-
   try {
     await fs.writeFile(inp, buf);
-
-    let bytes = null;
-    for (const step of ENCODE_STEPS) {
-      await run("ffmpeg", [
-        "-hide_banner", "-loglevel", "error", "-y",
-        "-i", inp,
-        // min() never upscales, so a small phone photo stays its own size.
-        "-vf", `scale='min(${step.width},iw)':-2`,
-        "-map_metadata", "-1",
-        "-frames:v", "1",
-        "-q:v", String(step.quality),
-        out,
-      ]);
-      const encoded = await fs.readFile(out);
-      if (encoded.length <= MAX_BYTES) {
-        bytes = encoded;
-        break;
-      }
-    }
-
-    // Every step was still too large, which means something is wrong with the
-    // file rather than with our settings.
-    if (!bytes) return { ok: false, reason: "invalid_image" };
-
+    // Re-encode small: the image travels inside the queued job, and an
+    // oversized payload is rejected by Redis. 1024px JPEG is ample for a face
+    // reference and lands around 100-300 kB instead of several megabytes.
+    await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", inp,
+      "-vf", "scale='min(1024,iw)':-2", "-map_metadata", "-1", "-frames:v", "1",
+      "-q:v", "4", out]);
+    const png = await fs.readFile(out);
+    if (png.length > 1_500_000) return { ok: false, reason: "invalid_image" };
     // TODO: face count + moderation here
-    // Named png for historical reasons; the bytes are JPEG.
-    return { ok: true, png: bytes };
+    return { ok: true, png };
   } catch {
     return { ok: false, reason: "invalid_image" };
   } finally {
