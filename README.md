@@ -22,7 +22,7 @@ The screenshot error `No user found for Key ID and Secret` is an authentication 
 
 ## Preserved generation behavior
 
-Each face segment is generated separately with the selfie, source video segment and that window's 16 kHz mono WAV audio. The prompt explicitly assigns Image 1 as the sole face identity, Video 1 as the scene and motion reference, and Audio 1 as the speech reference. The original or custom scene directions are included under that identity assignment. Requested durations round up to whole seconds and are clamped to 5–15 seconds, just like the working branch; the three-second tail renders five seconds and is trimmed back. The current comparison uses H3 Max at 768p with prompt expansion disabled so fal does not rewrite these directions. fal's `adaptive` aspect setting replaces Higgsfield's `auto`.
+Each face segment is generated separately with the selfie, source video segment and that window's 16 kHz mono WAV audio. The exact user-approved prompt from the successful H3 2K request is sent unchanged, with no added instructions. It is pinned in `worker/providers/fal-prompt.js`; stale `FAL_PROMPT` and `HF_PROMPT` values are ignored. Requested durations round up to whole seconds and are clamped to 5–15 seconds, just like the working branch; the three-second tail renders five seconds and is trimmed back. The current comparison uses H3 Max at 768p with prompt expansion disabled so fal does not rewrite these directions. fal's `adaptive` aspect setting replaces Higgsfield's `auto`.
 
 The adapter uses fal's `reference_image_urls`, `reference_video_urls` and `reference_audio_urls` fields. It uploads files with their correct MIME types and downloads the generated video for the unchanged FFmpeg pipeline. Audio extraction failure retains the working branch's behavior: log the issue and continue without the audio reference.
 
@@ -32,7 +32,7 @@ Optional settings:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `FAL_PROMPT` | Original working prompt | Prompt override; existing `HF_PROMPT` is accepted for migration |
+| `FAL_PROMPT` / `HF_PROMPT` | Ignored | The approved prompt is pinned in code for this comparison |
 | `FAL_RESOLUTION` | `768P` | `480P`, `768P`, `1080P` |
 | `FAL_ASPECT` | `adaptive` | Aspect ratio; existing `HF_ASPECT_RATIO` is accepted |
 | `FAL_VIDEO_REF` | `1` | Set `0` to omit source video; accepts legacy `HF_VIDEO_REF` |

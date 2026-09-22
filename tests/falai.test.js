@@ -28,11 +28,9 @@ mock.module("@fal-ai/client", { namedExports: {
 const { settings, referenceInput, falError, swapVideo, MODEL, DEFAULT_PROMPT } = await import("../worker/providers/falai.js");
 const { getProvider } = await import("../worker/providers/index.js");
 
-test("working branch prompt and generation settings are preserved", async () => {
-  const original = await fs.readFile(new URL("../worker/providers/higgsfield.js", import.meta.url), "utf8");
-  const expression = original.match(/const DEFAULT_PROMPT =([\s\S]*?);/)[1];
-  assert.equal(DEFAULT_PROMPT, Function(`return (${expression})`)());
+test("approved prompt and generation settings are preserved", () => {
   const input = referenceInput(3, settings({}), { imageUrl: "image", videoUrl: "video", audioUrl: "audio" });
+  assert.equal(input.prompt, DEFAULT_PROMPT);
   assert.equal(input.duration, 5);
   assert.equal(input.resolution, "768P");
   assert.equal(input.aspect_ratio, "adaptive");
@@ -47,15 +45,13 @@ test("stale model settings are ignored and unsupported references are rejected",
   assert.throws(() => getProvider("higgsfield"));
   assert.equal(getProvider().swapVideo, swapVideo);
 });
-test("legacy prompt and aspect settings survive migration", () => {
-  const options = settings({ HF_PROMPT: "custom", HF_ASPECT_RATIO: "auto", HF_AUDIO_REF: "0" });
-  assert.equal(options.prompt, "custom");
+test("approved prompt overrides stale deployment prompts while preserving aspect", () => {
+  const options = settings({ FAL_PROMPT: "stale", HF_PROMPT: "custom", HF_ASPECT_RATIO: "auto", HF_AUDIO_REF: "0" });
+  assert.equal(options.prompt, DEFAULT_PROMPT);
   assert.equal(options.aspect_ratio, "adaptive");
   assert.equal(options.audioRef, false);
   const input = referenceInput(10, options, { imageUrl: "selfie" });
-  assert.match(input.prompt, /Image 1 is the selfie/);
-  assert.match(input.prompt, /custom/);
-  assert.doesNotMatch(input.prompt, /Video 1|Audio 1/);
+  assert.equal(input.prompt, DEFAULT_PROMPT);
 });
 test("authentication failures identify the server key", () => {
   assert.match(falError(new Error("No user found for Key ID and Secret")), /Check FAL_KEY/);
@@ -79,8 +75,7 @@ test("adapter uploads correct types, sends audio, downloads, and cleans failed u
     assert.equal(requests[0].input.prompt_expansion_mode, "disabled");
     assert.deepEqual(requests[0].input.reference_image_urls, ["https://example.test/ref/image/png"]);
     assert.deepEqual(requests[0].input.reference_video_urls, ["https://example.test/ref/video/mp4"]);
-    assert.match(requests[0].input.prompt, /Image 1 is the selfie/);
-    assert.match(requests[0].input.prompt, /Do not retain or blend/);
+    assert.equal(requests[0].input.prompt, DEFAULT_PROMPT);
     assert.equal(requests[0].input.duration, 5);
     assert.equal(requests[0].input.reference_audio_urls.length, 1);
     assert.equal(await fs.readFile(outPath, "utf8"), "video bytes");

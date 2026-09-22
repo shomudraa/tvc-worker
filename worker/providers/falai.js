@@ -4,15 +4,8 @@ import { config } from "../config.js";
 import { duration, ffmpeg } from "../ffmpeg.js";
 
 export const MODEL = "minimax/h3-max/reference-to-video";
-// Preserve the working Higgsfield branch's prompt word for word.
-export const DEFAULT_PROMPT =
-  "Recreate the reference video shot for shot. Keep the same location, lighting, " +
-  "wardrobe, framing and camera movement. The person in the reference photo is the " +
-  "performer on screen, with their face and likeness, performing the same actions " +
-  "with the same timing. The performer speaks the reference audio: mouth shapes, jaw " +
-  "and tongue follow every syllable of that voice track, starting and stopping exactly " +
-  "with it, closed lips through the silences. Photorealistic, broadcast commercial " +
-  "quality, no captions, no on screen text, no logos.";
+import { DEFAULT_PROMPT } from "./fal-prompt.js";
+export { DEFAULT_PROMPT };
 
 export function settings(env = process.env) {
   // MODEL is pinned in code. Ignore stale deployment values from older versions.
@@ -26,7 +19,8 @@ export function settings(env = process.env) {
     throw new Error("Invalid FAL_ASPECT.");
   }
   return {
-    prompt: (env.FAL_PROMPT || env.HF_PROMPT || "").trim() || DEFAULT_PROMPT,
+    // Pin the approved prompt so stale environment overrides cannot replace it.
+    prompt: DEFAULT_PROMPT,
     resolution, aspect_ratio: aspectRatio,
     videoRef: (env.FAL_VIDEO_REF ?? env.HF_VIDEO_REF) !== "0",
     audioRef: (env.FAL_AUDIO_REF ?? env.HF_AUDIO_REF) !== "0",
@@ -40,16 +34,7 @@ export function referenceInput(seconds, options, { imageUrl, videoUrl, audioUrl 
     throw new Error("fal reference video must be 2–15 seconds. Check FACE_SEGMENTS.");
   }
   const input = {
-    prompt: [
-      "Identity replacement: Image 1 is the selfie and the sole reference for the on-screen performer's identity. " +
-      "Use the face, facial proportions, skin tone and hair from Image 1 consistently throughout the clip.",
-      videoUrl ? "Video 1 supplies the scene, wardrobe, framing, camera movement, body actions and timing only. " +
-        "Replace the main performer's face with the person from Image 1. Do not retain or blend in the original performer's facial identity from Video 1." : "",
-      audioUrl ? "Audio 1 supplies the speech and lip-sync timing." : "",
-      "Additional scene directions (the identity assignment above takes precedence):",
-      options.prompt,
-      "The final on-screen face must depict the person in Image 1.",
-    ].filter(Boolean).join("\n\n"),
+    prompt: options.prompt,
     prompt_expansion_mode: "disabled",
     duration: Math.min(15, Math.max(5, Math.ceil(seconds))),
     resolution: options.resolution,
