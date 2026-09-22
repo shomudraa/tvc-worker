@@ -1,6 +1,6 @@
 # Face Swap TVC — MiniMax H3 Max through fal.ai
 
-Based on `Higsfield-Minimax-Working-Version` at `0db0a73`. The master video, selfie processing, page design, face segments, original generation prompt, WAV audio references, normalization, stitching and original final soundtrack are preserved. fal.ai is the only active AI provider; legacy adapter files are not registered or imported.
+Based on `Higsfield-Minimax-Working-Version` at `0db0a73`. The master video, selfie processing, page design, face segments, WAV audio references, normalization, stitching and original final soundtrack are preserved. fal.ai is the only active AI provider; legacy adapter files are not registered or imported.
 
 ## Deploy
 
@@ -22,7 +22,7 @@ The screenshot error `No user found for Key ID and Secret` is an authentication 
 
 ## Preserved generation behavior
 
-Each face segment is generated separately with the selfie, source video segment and that window's 16 kHz mono WAV audio. The exact user-approved prompt from the successful H3 2K request is sent unchanged, with no added instructions. It is pinned in `worker/providers/fal-prompt.js`; stale `FAL_PROMPT` and `HF_PROMPT` values are ignored. Requested durations round up to whole seconds and are clamped to 5–15 seconds, just like the working branch; the three-second tail renders five seconds and is trimmed back. The current comparison uses standard H3 at 2K with prompt expansion disabled so fal does not rewrite these directions. fal's `adaptive` aspect setting replaces Higgsfield's `auto`.
+Each face segment is generated separately with the selfie, source video segment and that window's 16 kHz mono WAV audio. A short prompt assigns Image 1 to facial identity, Video 1 to the original scene and performance, and Audio 1 to speech timing. It is pinned in `worker/providers/fal-prompt.js`; stale `FAL_PROMPT` and `HF_PROMPT` values are ignored. Requested durations round up to whole seconds and are clamped to 5–15 seconds, just like the working branch; the three-second tail renders five seconds and is trimmed back. The current comparison uses standard H3 at 2K with prompt expansion disabled so fal does not rewrite these directions. fal's `adaptive` aspect setting replaces Higgsfield's `auto`.
 
 The adapter uses fal's `reference_image_urls`, `reference_video_urls` and `reference_audio_urls` fields. It uploads files with their correct MIME types and downloads the generated video for the unchanged FFmpeg pipeline. Audio extraction failure retains the working branch's behavior: log the issue and continue without the audio reference.
 
